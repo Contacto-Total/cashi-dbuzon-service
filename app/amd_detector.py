@@ -42,12 +42,14 @@ class AMDDetector:
 
         logger.info(f"Analizando: '{text_lower}' (duracion habla: {speech_duration:.2f}s)")
 
-        # Si no hay texto, es desconocido
+        # Si no hay texto después de 5+ segundos de "contestar" = MACHINE
+        # Un humano real dice "¿Aló?" en 1-2 segundos
+        # Silencio prolongado indica sistema automatizado o buzón de voz
         if not text_lower:
             return {
-                "result": "UNKNOWN",
-                "confidence": 0.0,
-                "reason": "No se detecto habla",
+                "result": "MACHINE",
+                "confidence": 0.70,
+                "reason": "Silencio prolongado despues de contestar - probable sistema automatizado",
                 "transcription": ""
             }
 
