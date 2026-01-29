@@ -83,6 +83,7 @@ class AMDDetector:
                 }
 
         # REGLA 3: Respuesta corta tipica de humano ("alo", "hola", "si", "digame")
+        # Solo si es un saludo CONOCIDO y es corto
         human_greetings = ["alo", "aló", "hola", "si", "sí", "diga", "digame", "dígame",
                           "bueno", "quien", "quién", "mande"]
 
@@ -97,14 +98,47 @@ class AMDDetector:
                         "transcription": text_lower
                     }
 
-        # REGLA 4: Si es corto y no tiene keywords de buzon = probablemente humano
+        # REGLA 4: Palabras sueltas sin contexto = probablemente fragmento mal transcrito
+        # Palabras como "archivo", "solo", "quieren", "no" son frecuentemente
+        # fragmentos mal transcritos de buzones de voz, NO respuestas humanas reales.
+        # Un humano real dice "aló", "hola", "sí", etc. - no palabras random.
+        suspicious_single_words = [
+            "archivo", "solo", "quieren", "león", "holgado", "luego",
+            "lo", "el", "la", "los", "las", "un", "una", "de", "que",
+            "le", "se", "no", "es", "en", "por", "con", "para"
+        ]
+
+        if len(words) == 1:
+            single_word = words[0]
+            # Si es una palabra suelta sospechosa = necesitamos más audio
+            if single_word in suspicious_single_words or single_word not in human_greetings:
+                return {
+                    "result": "UNKNOWN",
+                    "confidence": 0.40,
+                    "reason": f"Palabra suelta sin contexto: '{text_lower}' - esperando mas audio",
+                    "transcription": text_lower
+                }
+
+        # REGLA 5: Si es corto (2-4 palabras) y NO es saludo conocido = UNKNOWN
+        # Dar más tiempo para escuchar el contexto completo
         if len(words) <= 4 and len(keywords_found) == 0:
-            return {
-                "result": "HUMAN",
-                "confidence": 0.70,
-                "reason": "Respuesta corta sin indicadores de buzon",
-                "transcription": text_lower
-            }
+            # Verificar si contiene al menos un saludo humano
+            has_greeting = any(g in text_lower for g in human_greetings)
+            if has_greeting:
+                return {
+                    "result": "HUMAN",
+                    "confidence": 0.70,
+                    "reason": f"Respuesta corta con saludo: '{text_lower}'",
+                    "transcription": text_lower
+                }
+            else:
+                # No tiene saludo conocido - probablemente fragmento de buzón
+                return {
+                    "result": "UNKNOWN",
+                    "confidence": 0.50,
+                    "reason": f"Respuesta corta sin saludo conocido: '{text_lower}' - esperando mas audio",
+                    "transcription": text_lower
+                }
 
         # Default: Si no podemos determinar con confianza
         return {
@@ -158,8 +192,10 @@ class AMDSession:
                     self.total_speech_duration
                 )
 
-                # Si tenemos alta confianza, tomar decision
-                if analysis["confidence"] >= 0.70:
+                # Solo tomar decision si:
+                # 1. Es MACHINE o HUMAN (no UNKNOWN)
+                # 2. Tenemos confianza >= 70%
+                if analysis["result"] != "UNKNOWN" and analysis["confidence"] >= 0.70:
                     self.decision_made = True
                     self.final_result = {
                         "call_id": self.call_id,
@@ -190,6 +226,7 @@ class AMDSession:
     def force_decision(self) -> dict:
         """
         Fuerza una decision con lo que se tiene (timeout)
+        Si el resultado es UNKNOWN, opta por MACHINE (mas seguro no conectar buzon)
         """
         if self.decision_made:
             return self.final_result
@@ -206,6 +243,16 @@ class AMDSession:
             self.accumulated_text.strip(),
             self.total_speech_duration
         )
+
+        # Si despues del timeout el resultado es UNKNOWN, optar por MACHINE
+        # Es mas seguro no conectar un buzon que conectar un buzon al agente
+        if analysis["result"] == "UNKNOWN":
+            analysis = {
+                "result": "MACHINE",
+                "confidence": 0.60,
+                "reason": f"Timeout sin decision clara - probable buzon (texto: '{self.accumulated_text.strip()}')",
+                "transcription": self.accumulated_text.strip()
+            }
 
         self.decision_made = True
         self.final_result = {

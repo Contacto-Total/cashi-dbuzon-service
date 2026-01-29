@@ -79,14 +79,29 @@ async def analyze_audio(request: AnalyzeRequest):
         # Decodificar audio
         audio_data = base64.b64decode(request.audio_base64)
 
+        logger.info(f"[{request.call_id}] Recibido audio: {len(audio_data)} bytes")
+
         # Crear sesion temporal
         session = AMDSession(amd_detector, request.call_id, request.sample_rate)
 
-        # Procesar todo el audio
-        result = session.process_audio(audio_data)
+        # IMPORTANTE: Vosk necesita recibir audio en chunks pequeños
+        # No puede procesar todo de golpe. Chunk size = 4000 bytes (~0.25s a 8kHz 16-bit)
+        CHUNK_SIZE = 4000
+        result = None
 
-        # Si no hay decision, forzar
+        # Procesar audio en chunks para que Vosk pueda analizarlo correctamente
+        for i in range(0, len(audio_data), CHUNK_SIZE):
+            chunk = audio_data[i:i + CHUNK_SIZE]
+            result = session.process_audio(chunk)
+
+            # Si ya tomó una decisión, salir del loop
+            if result:
+                logger.info(f"[{request.call_id}] Decision tomada en chunk {i // CHUNK_SIZE + 1}")
+                break
+
+        # Si no hay decision después de procesar todo, forzar
         if not result:
+            logger.info(f"[{request.call_id}] Forzando decision después de procesar {len(audio_data)} bytes")
             result = session.force_decision()
 
         return JSONResponse(content=result)
