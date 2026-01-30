@@ -71,6 +71,10 @@ async def analyze_audio(request: AnalyzeRequest):
     """
     Analiza audio completo via HTTP POST
     Util para pruebas o integracion simple
+
+    Flujo:
+    1. Detectar beep (rapido, ~10-50ms) -> Si hay beep = MACHINE
+    2. Si no hay beep, transcribir con Vosk -> Analizar texto
     """
     if not amd_detector:
         raise HTTPException(status_code=503, detail="Modelo no cargado")
@@ -81,6 +85,29 @@ async def analyze_audio(request: AnalyzeRequest):
 
         logger.info(f"[{request.call_id}] Recibido audio: {len(audio_data)} bytes")
 
+        # ========================================
+        # PASO 1: Detectar beep (muy rapido)
+        # Si hay pitido = buzon de voz
+        # ========================================
+        beep_result = amd_detector.detect_beep(audio_data, request.sample_rate)
+
+        if beep_result.get("detected", False):
+            logger.info(f"[{request.call_id}] BEEP detectado: {beep_result}")
+            result = {
+                "call_id": request.call_id,
+                "result": "MACHINE",
+                "confidence": beep_result.get("confidence", 0.80),
+                "reason": f"Pitido de buzon detectado a {beep_result.get('frequency', 0):.0f}Hz",
+                "transcription": "",
+                "beep_detected": True
+            }
+            return JSONResponse(content=result)
+
+        logger.info(f"[{request.call_id}] No se detecto beep, continuando con transcripcion...")
+
+        # ========================================
+        # PASO 2: Si no hay beep, analizar con Vosk
+        # ========================================
         # Crear sesion temporal
         session = AMDSession(amd_detector, request.call_id, request.sample_rate)
 

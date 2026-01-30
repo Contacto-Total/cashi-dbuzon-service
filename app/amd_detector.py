@@ -3,6 +3,7 @@ AMD Detector - Deteccion de Buzon de Voz usando Vosk
 """
 import json
 import logging
+import numpy as np
 from vosk import Model, KaldiRecognizer
 from app.config import (
     VOSK_MODEL_PATH,
@@ -16,7 +17,14 @@ class AMDDetector:
     """
     Detector de Maquina Contestadora (AMD)
     Usa Vosk para transcribir audio y detectar si es humano o maquina
+    Incluye deteccion de pitidos/tonos para buzones de voz
     """
+
+    # Rango de frecuencias tipicas de beeps de buzon (Hz)
+    BEEP_FREQ_MIN = 800
+    BEEP_FREQ_MAX = 1800
+    # Umbral de energia para considerar que hay un tono
+    BEEP_ENERGY_THRESHOLD = 0.3
 
     def __init__(self):
         logger.info(f"Cargando modelo Vosk desde: {VOSK_MODEL_PATH}")
@@ -26,6 +34,81 @@ class AMDDetector:
     def create_recognizer(self, sample_rate: int = 8000) -> KaldiRecognizer:
         """Crea un nuevo recognizer para una llamada"""
         return KaldiRecognizer(self.model, sample_rate)
+
+    def detect_beep(self, audio_data: bytes, sample_rate: int = 8000) -> dict:
+        """
+        Detecta si hay un pitido/tono tipico de buzon de voz en el audio.
+        Usa FFT para analizar las frecuencias dominantes.
+
+        Args:
+            audio_data: Bytes de audio (16-bit PCM)
+            sample_rate: Frecuencia de muestreo (default 8000Hz)
+
+        Returns:
+            dict con detected (bool), frequency (Hz), confidence (0-1)
+        """
+        try:
+            # Convertir bytes a array de numpy (16-bit signed)
+            audio_array = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32)
+
+            if len(audio_array) < 1024:
+                return {"detected": False, "reason": "Audio muy corto"}
+
+            # Normalizar
+            audio_array = audio_array / 32768.0
+
+            # Aplicar FFT
+            fft_result = np.fft.rfft(audio_array)
+            fft_magnitude = np.abs(fft_result)
+
+            # Calcular frecuencias correspondientes
+            freqs = np.fft.rfftfreq(len(audio_array), 1.0 / sample_rate)
+
+            # Buscar energia en el rango de frecuencias de beep
+            beep_mask = (freqs >= self.BEEP_FREQ_MIN) & (freqs <= self.BEEP_FREQ_MAX)
+            beep_energy = np.sum(fft_magnitude[beep_mask])
+            total_energy = np.sum(fft_magnitude)
+
+            if total_energy == 0:
+                return {"detected": False, "reason": "Sin energia de audio"}
+
+            # Proporcion de energia en el rango de beep
+            beep_ratio = beep_energy / total_energy
+
+            # Encontrar la frecuencia dominante en el rango de beep
+            beep_magnitudes = fft_magnitude.copy()
+            beep_magnitudes[~beep_mask] = 0
+            dominant_idx = np.argmax(beep_magnitudes)
+            dominant_freq = freqs[dominant_idx] if beep_magnitudes[dominant_idx] > 0 else 0
+
+            # Verificar si es un tono puro (pico bien definido)
+            if beep_ratio > self.BEEP_ENERGY_THRESHOLD and dominant_freq > 0:
+                # Calcular que tan "puro" es el tono (concentracion de energia)
+                peak_energy = fft_magnitude[dominant_idx]
+                purity = peak_energy / beep_energy if beep_energy > 0 else 0
+
+                confidence = min(0.95, beep_ratio * purity * 2)
+
+                logger.info(f"BEEP detectado: freq={dominant_freq:.0f}Hz, ratio={beep_ratio:.2f}, purity={purity:.2f}, conf={confidence:.2f}")
+
+                return {
+                    "detected": True,
+                    "frequency": float(dominant_freq),
+                    "confidence": float(confidence),
+                    "energy_ratio": float(beep_ratio),
+                    "reason": f"Tono detectado a {dominant_freq:.0f}Hz"
+                }
+
+            return {
+                "detected": False,
+                "frequency": float(dominant_freq) if dominant_freq > 0 else 0,
+                "energy_ratio": float(beep_ratio),
+                "reason": "No se detecto tono de beep"
+            }
+
+        except Exception as e:
+            logger.error(f"Error en deteccion de beep: {e}")
+            return {"detected": False, "reason": f"Error: {str(e)}"}
 
     def analyze_transcription(self, text: str, speech_duration: float = 0) -> dict:
         """
@@ -42,14 +125,15 @@ class AMDDetector:
 
         logger.info(f"Analizando: '{text_lower}' (duracion habla: {speech_duration:.2f}s)")
 
-        # Si no hay texto después de 5+ segundos de "contestar" = MACHINE
-        # Un humano real dice "¿Aló?" en 1-2 segundos
-        # Silencio prolongado indica sistema automatizado o buzón de voz
+        # Si no hay texto = silencio
+        # En cobranza, muchos clientes contestan y se quedan callados por miedo/desconfianza
+        # Por eso silencio SIN pitido = HUMANO (cliente callado)
+        # La deteccion de pitido se hace por separado antes de llegar aqui
         if not text_lower:
             return {
-                "result": "MACHINE",
-                "confidence": 0.70,
-                "reason": "Silencio prolongado despues de contestar - probable sistema automatizado",
+                "result": "HUMAN",
+                "confidence": 0.65,
+                "reason": "Silencio - probable cliente callado por desconfianza",
                 "transcription": ""
             }
 
@@ -244,13 +328,14 @@ class AMDSession:
             self.total_speech_duration
         )
 
-        # Si despues del timeout el resultado es UNKNOWN, optar por MACHINE
-        # Es mas seguro no conectar un buzon que conectar un buzon al agente
+        # Si despues del timeout el resultado es UNKNOWN, optar por HUMAN
+        # En cobranza, silencio o respuesta confusa = probable cliente callado por desconfianza
+        # La deteccion de beep ya descarto buzones con pitido
         if analysis["result"] == "UNKNOWN":
             analysis = {
-                "result": "MACHINE",
-                "confidence": 0.60,
-                "reason": f"Timeout sin decision clara - probable buzon (texto: '{self.accumulated_text.strip()}')",
+                "result": "HUMAN",
+                "confidence": 0.55,
+                "reason": f"Timeout sin decision clara - asumiendo cliente callado (texto: '{self.accumulated_text.strip()}')",
                 "transcription": self.accumulated_text.strip()
             }
 
