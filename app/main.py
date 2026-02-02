@@ -4,6 +4,7 @@ Recibe audio via WebSocket y devuelve HUMAN/MACHINE
 """
 import asyncio
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -33,14 +34,27 @@ amd_detector: Optional[AMDDetector] = None
 # Sesiones activas
 active_sessions: dict[str, AMDSession] = {}
 
+# ThreadPoolExecutor para procesamiento paralelo de AMD
+# 3 threads por worker = 6 analisis paralelos con 2 workers
+amd_executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="amd_worker")
+
 
 @app.on_event("startup")
 async def startup_event():
     """Cargar modelo Vosk al iniciar"""
     global amd_detector
     logger.info("Iniciando AMD Service...")
+    logger.info(f"ThreadPoolExecutor configurado con {amd_executor._max_workers} workers")
     amd_detector = AMDDetector()
     logger.info("AMD Service listo")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Limpiar recursos al detener"""
+    logger.info("Deteniendo AMD Service...")
+    amd_executor.shutdown(wait=True)
+    logger.info("ThreadPoolExecutor cerrado")
 
 
 @app.get("/")
@@ -55,7 +69,9 @@ async def health():
     return {
         "status": "healthy",
         "model_loaded": amd_detector is not None,
-        "active_sessions": len(active_sessions)
+        "active_sessions": len(active_sessions),
+        "thread_pool_max_workers": amd_executor._max_workers,
+        "thread_pool_threads": len(amd_executor._threads) if hasattr(amd_executor, '_threads') else 0
     }
 
 
@@ -66,15 +82,73 @@ class AnalyzeRequest(BaseModel):
     sample_rate: int = 8000
 
 
+def _process_audio_sync(call_id: str, audio_data: bytes, sample_rate: int) -> dict:
+    """
+    Funcion sincrona para procesar audio AMD.
+    Se ejecuta en ThreadPoolExecutor para permitir multiples analisis en paralelo.
+
+    Flujo:
+    1. Detectar beep (rapido, ~10-50ms) -> Si hay beep = MACHINE
+    2. Si no hay beep, transcribir con Vosk -> Analizar texto
+    """
+    logger.info(f"[{call_id}] Procesando audio: {len(audio_data)} bytes")
+
+    # ========================================
+    # PASO 1: Detectar beep (muy rapido)
+    # Si hay pitido = buzon de voz
+    # ========================================
+    beep_result = amd_detector.detect_beep(audio_data, sample_rate)
+
+    if beep_result.get("detected", False):
+        logger.info(f"[{call_id}] BEEP detectado: {beep_result}")
+        return {
+            "call_id": call_id,
+            "result": "MACHINE",
+            "confidence": beep_result.get("confidence", 0.80),
+            "reason": f"Pitido de buzon detectado a {beep_result.get('frequency', 0):.0f}Hz",
+            "transcription": "",
+            "beep_detected": True
+        }
+
+    logger.info(f"[{call_id}] No se detecto beep, continuando con transcripcion...")
+
+    # ========================================
+    # PASO 2: Si no hay beep, analizar con Vosk
+    # ========================================
+    # Crear sesion temporal (cada sesion tiene su propio KaldiRecognizer)
+    session = AMDSession(amd_detector, call_id, sample_rate)
+
+    # IMPORTANTE: Vosk necesita recibir audio en chunks pequeños
+    # No puede procesar todo de golpe. Chunk size = 4000 bytes (~0.25s a 8kHz 16-bit)
+    CHUNK_SIZE = 4000
+    result = None
+
+    # Procesar audio en chunks para que Vosk pueda analizarlo correctamente
+    for i in range(0, len(audio_data), CHUNK_SIZE):
+        chunk = audio_data[i:i + CHUNK_SIZE]
+        result = session.process_audio(chunk)
+
+        # Si ya tomó una decisión, salir del loop
+        if result:
+            logger.info(f"[{call_id}] Decision tomada en chunk {i // CHUNK_SIZE + 1}")
+            break
+
+    # Si no hay decision después de procesar todo, forzar
+    if not result:
+        logger.info(f"[{call_id}] Forzando decision después de procesar {len(audio_data)} bytes")
+        result = session.force_decision()
+
+    return result
+
+
 @app.post("/analyze")
 async def analyze_audio(request: AnalyzeRequest):
     """
     Analiza audio completo via HTTP POST
     Util para pruebas o integracion simple
 
-    Flujo:
-    1. Detectar beep (rapido, ~10-50ms) -> Si hay beep = MACHINE
-    2. Si no hay beep, transcribir con Vosk -> Analizar texto
+    El procesamiento se ejecuta en ThreadPoolExecutor permitiendo
+    multiples analisis AMD en paralelo (3 por worker).
     """
     if not amd_detector:
         raise HTTPException(status_code=503, detail="Modelo no cargado")
@@ -85,51 +159,15 @@ async def analyze_audio(request: AnalyzeRequest):
 
         logger.info(f"[{request.call_id}] Recibido audio: {len(audio_data)} bytes")
 
-        # ========================================
-        # PASO 1: Detectar beep (muy rapido)
-        # Si hay pitido = buzon de voz
-        # ========================================
-        beep_result = amd_detector.detect_beep(audio_data, request.sample_rate)
-
-        if beep_result.get("detected", False):
-            logger.info(f"[{request.call_id}] BEEP detectado: {beep_result}")
-            result = {
-                "call_id": request.call_id,
-                "result": "MACHINE",
-                "confidence": beep_result.get("confidence", 0.80),
-                "reason": f"Pitido de buzon detectado a {beep_result.get('frequency', 0):.0f}Hz",
-                "transcription": "",
-                "beep_detected": True
-            }
-            return JSONResponse(content=result)
-
-        logger.info(f"[{request.call_id}] No se detecto beep, continuando con transcripcion...")
-
-        # ========================================
-        # PASO 2: Si no hay beep, analizar con Vosk
-        # ========================================
-        # Crear sesion temporal
-        session = AMDSession(amd_detector, request.call_id, request.sample_rate)
-
-        # IMPORTANTE: Vosk necesita recibir audio en chunks pequeños
-        # No puede procesar todo de golpe. Chunk size = 4000 bytes (~0.25s a 8kHz 16-bit)
-        CHUNK_SIZE = 4000
-        result = None
-
-        # Procesar audio en chunks para que Vosk pueda analizarlo correctamente
-        for i in range(0, len(audio_data), CHUNK_SIZE):
-            chunk = audio_data[i:i + CHUNK_SIZE]
-            result = session.process_audio(chunk)
-
-            # Si ya tomó una decisión, salir del loop
-            if result:
-                logger.info(f"[{request.call_id}] Decision tomada en chunk {i // CHUNK_SIZE + 1}")
-                break
-
-        # Si no hay decision después de procesar todo, forzar
-        if not result:
-            logger.info(f"[{request.call_id}] Forzando decision después de procesar {len(audio_data)} bytes")
-            result = session.force_decision()
+        # Ejecutar procesamiento en thread pool para permitir paralelismo
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            amd_executor,
+            _process_audio_sync,
+            request.call_id,
+            audio_data,
+            request.sample_rate
+        )
 
         return JSONResponse(content=result)
 
