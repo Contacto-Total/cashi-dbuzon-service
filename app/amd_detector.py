@@ -126,14 +126,13 @@ class AMDDetector:
         logger.info(f"Analizando: '{text_lower}' (duracion habla: {speech_duration:.2f}s)")
 
         # Si no hay texto = silencio
-        # En cobranza, muchos clientes contestan y se quedan callados por miedo/desconfianza
-        # Por eso silencio SIN pitido = HUMANO (cliente callado)
-        # La deteccion de pitido se hace por separado antes de llegar aqui
+        # Silencio puede ser: cliente callado O buzón que aún no habla
+        # Mejor esperar más audio antes de decidir
         if not text_lower:
             return {
-                "result": "HUMAN",
-                "confidence": 0.65,
-                "reason": "Silencio - probable cliente callado por desconfianza",
+                "result": "UNKNOWN",
+                "confidence": 0.40,
+                "reason": "Silencio - esperando más audio para determinar",
                 "transcription": ""
             }
 
@@ -328,15 +327,18 @@ class AMDSession:
             self.total_speech_duration
         )
 
-        # Si despues del timeout el resultado es UNKNOWN, optar por HUMAN
-        # En cobranza, silencio o respuesta confusa = probable cliente callado por desconfianza
-        # La deteccion de beep ya descarto buzones con pitido
+        # Si despues del timeout el resultado es UNKNOWN, optar por MACHINE
+        # Es más seguro NO conectar un posible buzón a un agente
+        # Un humano real generalmente dice algo reconocible (aló, hola, etc.)
         if analysis["result"] == "UNKNOWN":
+            accumulated = self.accumulated_text.strip()
+            # Si hay algo de texto pero no es saludo conocido = probable buzón
+            # Si es silencio total = puede ser buzón que no grabó bien
             analysis = {
-                "result": "HUMAN",
-                "confidence": 0.55,
-                "reason": f"Timeout sin decision clara - asumiendo cliente callado (texto: '{self.accumulated_text.strip()}')",
-                "transcription": self.accumulated_text.strip()
+                "result": "MACHINE",
+                "confidence": 0.60,
+                "reason": f"Timeout sin saludo humano reconocido - probable buzón o sistema (texto: '{accumulated}')",
+                "transcription": accumulated
             }
 
         self.decision_made = True
