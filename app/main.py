@@ -4,6 +4,7 @@ Recibe audio via WebSocket y devuelve HUMAN/MACHINE
 """
 import asyncio
 import logging
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.responses import JSONResponse
@@ -13,6 +14,13 @@ import base64
 
 from app.amd_detector import AMDDetector, AMDSession
 from app.config import SERVER_HOST, SERVER_PORT, AMD_DECISION_TIMEOUT_SECONDS
+
+# ============================================
+# Configuracion de Load Shedding (bypass AMD)
+# ============================================
+# Si hay mas de este numero de analisis en proceso,
+# las nuevas llamadas pasan directo como HUMAN sin analisis
+MAX_CONCURRENT_ANALYSES = 5
 
 # Configurar logging
 logging.basicConfig(
@@ -37,6 +45,10 @@ active_sessions: dict[str, AMDSession] = {}
 # ThreadPoolExecutor para procesamiento paralelo de AMD
 # 3 threads por worker = 6 analisis paralelos con 2 workers
 amd_executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="amd_worker")
+
+# Contador thread-safe para load shedding
+_analyses_in_progress = 0
+_analyses_lock = threading.Lock()
 
 
 @app.on_event("startup")
@@ -71,7 +83,10 @@ async def health():
         "model_loaded": amd_detector is not None,
         "active_sessions": len(active_sessions),
         "thread_pool_max_workers": amd_executor._max_workers,
-        "thread_pool_threads": len(amd_executor._threads) if hasattr(amd_executor, '_threads') else 0
+        "thread_pool_threads": len(amd_executor._threads) if hasattr(amd_executor, '_threads') else 0,
+        "analyses_in_progress": _analyses_in_progress,
+        "max_concurrent_analyses": MAX_CONCURRENT_ANALYSES,
+        "load_shedding_active": _analyses_in_progress >= MAX_CONCURRENT_ANALYSES
     }
 
 
@@ -149,9 +164,38 @@ async def analyze_audio(request: AnalyzeRequest):
 
     El procesamiento se ejecuta en ThreadPoolExecutor permitiendo
     multiples analisis AMD en paralelo (3 por worker).
+
+    Load Shedding: Si hay mas de MAX_CONCURRENT_ANALYSES en proceso,
+    la llamada pasa directo como HUMAN sin analisis (bypass).
     """
+    global _analyses_in_progress
+
     if not amd_detector:
         raise HTTPException(status_code=503, detail="Modelo no cargado")
+
+    # ============================================
+    # LOAD SHEDDING: Bypass si estamos saturados
+    # ============================================
+    with _analyses_lock:
+        if _analyses_in_progress >= MAX_CONCURRENT_ANALYSES:
+            logger.warning(
+                f"[{request.call_id}] AMD SATURADO ({_analyses_in_progress}/{MAX_CONCURRENT_ANALYSES}) "
+                f"- Bypass como HUMAN"
+            )
+            return JSONResponse(content={
+                "call_id": request.call_id,
+                "result": "HUMAN",
+                "confidence": 0.50,
+                "reason": f"AMD saturado ({_analyses_in_progress}/{MAX_CONCURRENT_ANALYSES}) - bypass sin analisis",
+                "transcription": "",
+                "beep_detected": False,
+                "bypassed": True
+            })
+        # Reservar slot
+        _analyses_in_progress += 1
+        current_count = _analyses_in_progress
+
+    logger.info(f"[{request.call_id}] Analisis iniciado ({current_count}/{MAX_CONCURRENT_ANALYSES} en uso)")
 
     try:
         # Decodificar audio
@@ -169,11 +213,19 @@ async def analyze_audio(request: AnalyzeRequest):
             request.sample_rate
         )
 
+        # Agregar flag de que no fue bypass
+        result["bypassed"] = False
         return JSONResponse(content=result)
 
     except Exception as e:
         logger.error(f"Error analizando audio: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+    finally:
+        # Liberar slot siempre
+        with _analyses_lock:
+            _analyses_in_progress -= 1
+            logger.debug(f"[{request.call_id}] Slot liberado ({_analyses_in_progress}/{MAX_CONCURRENT_ANALYSES} en uso)")
 
 
 @app.websocket("/ws/{call_id}")
