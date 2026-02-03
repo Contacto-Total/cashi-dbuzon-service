@@ -327,17 +327,16 @@ class AMDSession:
             self.total_speech_duration
         )
 
-        # Si despues del timeout el resultado es UNKNOWN, optar por MACHINE
-        # Es más seguro NO conectar un posible buzón a un agente
-        # Un humano real generalmente dice algo reconocible (aló, hola, etc.)
+        # Si despues del timeout el resultado es UNKNOWN, optar por HUMAN
+        # CAMBIO: Silencio/timeout ahora se trata como HUMANO
+        # Una persona puede contestar y quedarse en silencio esperando
+        # Es mejor conectar a un agente que colgar a un cliente real
         if analysis["result"] == "UNKNOWN":
             accumulated = self.accumulated_text.strip()
-            # Si hay algo de texto pero no es saludo conocido = probable buzón
-            # Si es silencio total = puede ser buzón que no grabó bien
             analysis = {
-                "result": "MACHINE",
-                "confidence": 0.60,
-                "reason": f"Timeout sin saludo humano reconocido - probable buzón o sistema (texto: '{accumulated}')",
+                "result": "HUMAN",
+                "confidence": 0.50,
+                "reason": f"Silencio/timeout - asumiendo humano esperando (texto: '{accumulated}')",
                 "transcription": accumulated
             }
 
