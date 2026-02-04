@@ -128,11 +128,9 @@ def _process_audio_sync(call_id: str, audio_data: bytes, sample_rate: int) -> di
     """
     original_size = len(audio_data)
 
-    # Convertir estéreo a mono (extraer canal del cliente)
-    # Detectamos estéreo si el tamaño es aproximadamente el doble de lo esperado
-    # 5 segundos mono @ 8kHz 16-bit = 80000 bytes
-    # 5 segundos estéreo @ 8kHz 16-bit = 160000 bytes
-    if original_size > 100000:  # Probablemente estéreo
+    # SIEMPRE convertir estéreo a mono (extraer canal del cliente)
+    # FreeSWITCH graba en estéreo por defecto, Vosk solo acepta mono
+    if original_size >= 8:  # Mínimo para tener al menos 2 frames estéreo
         audio_data = _stereo_to_mono(audio_data)
         logger.info(f"[{call_id}] Convertido estéreo a mono: {original_size} -> {len(audio_data)} bytes")
 
