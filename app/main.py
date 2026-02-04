@@ -89,15 +89,53 @@ class AnalyzeRequest(BaseModel):
     sample_rate: int = 8000
 
 
+def _stereo_to_mono(audio_data: bytes) -> bytes:
+    """
+    Convierte audio estéreo a mono extrayendo solo el canal derecho (cliente).
+
+    En grabaciones de llamadas FreeSWITCH:
+    - Canal izquierdo (bytes 0-1): nuestro lado (agente/sistema)
+    - Canal derecho (bytes 2-3): el cliente (far-end)
+
+    Para AMD solo nos interesa el canal del cliente.
+
+    Formato: 16-bit PCM, little-endian
+    Estéreo: L0 L1 R0 R1 L0 L1 R0 R1 ... (4 bytes por frame)
+    Mono:    R0 R1 R0 R1 ... (2 bytes por frame)
+    """
+    if len(audio_data) < 4:
+        return audio_data
+
+    # Extraer solo el canal derecho (cada 4 bytes, tomar bytes 2-3)
+    mono_data = bytearray()
+    for i in range(0, len(audio_data) - 3, 4):
+        # Canal derecho = bytes 2 y 3 de cada frame de 4 bytes
+        mono_data.append(audio_data[i + 2])
+        mono_data.append(audio_data[i + 3])
+
+    return bytes(mono_data)
+
+
 def _process_audio_sync(call_id: str, audio_data: bytes, sample_rate: int) -> dict:
     """
     Funcion sincrona para procesar audio AMD.
     Se ejecuta en ThreadPoolExecutor para permitir multiples analisis en paralelo.
 
     Flujo:
-    1. Detectar beep (rapido, ~10-50ms) -> Si hay beep = MACHINE
-    2. Si no hay beep, transcribir con Vosk -> Analizar texto
+    1. Convertir estéreo a mono si es necesario
+    2. Detectar beep (rapido, ~10-50ms) -> Si hay beep = MACHINE
+    3. Si no hay beep, transcribir con Vosk -> Analizar texto
     """
+    original_size = len(audio_data)
+
+    # Convertir estéreo a mono (extraer canal del cliente)
+    # Detectamos estéreo si el tamaño es aproximadamente el doble de lo esperado
+    # 5 segundos mono @ 8kHz 16-bit = 80000 bytes
+    # 5 segundos estéreo @ 8kHz 16-bit = 160000 bytes
+    if original_size > 100000:  # Probablemente estéreo
+        audio_data = _stereo_to_mono(audio_data)
+        logger.info(f"[{call_id}] Convertido estéreo a mono: {original_size} -> {len(audio_data)} bytes")
+
     logger.info(f"[{call_id}] Procesando audio: {len(audio_data)} bytes")
 
     # ========================================
