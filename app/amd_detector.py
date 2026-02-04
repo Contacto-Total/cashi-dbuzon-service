@@ -244,6 +244,7 @@ class AMDSession:
         self.sample_rate = sample_rate
         self.recognizer = detector.create_recognizer(sample_rate)
         self.accumulated_text = ""
+        self.last_partial_text = ""  # Guardar ultimo texto parcial para force_decision
         self.speech_start_time = None
         self.total_speech_duration = 0.0
         self.decision_made = False
@@ -291,6 +292,10 @@ class AMDSession:
             partial = json.loads(self.recognizer.PartialResult())
             partial_text = partial.get("partial", "")
 
+            # IMPORTANTE: Guardar el texto parcial más reciente para force_decision
+            if partial_text:
+                self.last_partial_text = partial_text
+
             # Analisis rapido del parcial para detectar buzones obvios
             if partial_text:
                 quick_analysis = self.detector.analyze_transcription(partial_text, 0)
@@ -321,9 +326,16 @@ class AMDSession:
         if final_text:
             self.accumulated_text += " " + final_text
 
-        # Analizar todo lo acumulado
+        # Si no hay texto acumulado, usar el ultimo texto parcial
+        # Esto es CRITICO porque Vosk puede no haber completado el reconocimiento
+        text_to_analyze = self.accumulated_text.strip()
+        if not text_to_analyze and self.last_partial_text:
+            text_to_analyze = self.last_partial_text.strip()
+            logger.info(f"[{self.call_id}] Usando texto parcial para decision: '{text_to_analyze}'")
+
+        # Analizar todo lo acumulado (o el parcial si no hay acumulado)
         analysis = self.detector.analyze_transcription(
-            self.accumulated_text.strip(),
+            text_to_analyze,
             self.total_speech_duration
         )
 
@@ -332,12 +344,11 @@ class AMDSession:
         # Una persona puede contestar y quedarse en silencio esperando
         # Es mejor conectar a un agente que colgar a un cliente real
         if analysis["result"] == "UNKNOWN":
-            accumulated = self.accumulated_text.strip()
             analysis = {
                 "result": "HUMAN",
                 "confidence": 0.50,
-                "reason": f"Silencio/timeout - asumiendo humano esperando (texto: '{accumulated}')",
-                "transcription": accumulated
+                "reason": f"Silencio/timeout - asumiendo humano esperando (texto: '{text_to_analyze}')",
+                "transcription": text_to_analyze
             }
 
         self.decision_made = True
