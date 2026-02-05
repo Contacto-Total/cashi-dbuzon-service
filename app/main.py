@@ -91,27 +91,27 @@ class AnalyzeRequest(BaseModel):
 
 def _stereo_to_mono(audio_data: bytes) -> bytes:
     """
-    Convierte audio estéreo a mono extrayendo solo el canal derecho (cliente).
+    Convierte audio estéreo a mono extrayendo solo el canal izquierdo (cliente).
 
-    En grabaciones de llamadas FreeSWITCH:
-    - Canal izquierdo (bytes 0-1): nuestro lado (agente/sistema)
-    - Canal derecho (bytes 2-3): el cliente (far-end)
+    En grabaciones de llamadas FreeSWITCH con record_stereo:
+    - Canal izquierdo (bytes 0-1): el cliente (far-end) - ESTE ES EL QUE NECESITAMOS
+    - Canal derecho (bytes 2-3): nuestro lado (agente/sistema) - vacío antes del bridge
 
-    Para AMD solo nos interesa el canal del cliente.
+    Para AMD solo nos interesa el canal del cliente (izquierdo).
 
     Formato: 16-bit PCM, little-endian
     Estéreo: L0 L1 R0 R1 L0 L1 R0 R1 ... (4 bytes por frame)
-    Mono:    R0 R1 R0 R1 ... (2 bytes por frame)
+    Mono:    L0 L1 L0 L1 ... (2 bytes por frame)
     """
     if len(audio_data) < 4:
         return audio_data
 
-    # Extraer solo el canal derecho (cada 4 bytes, tomar bytes 2-3)
+    # Extraer solo el canal IZQUIERDO (cada 4 bytes, tomar bytes 0-1)
     mono_data = bytearray()
     for i in range(0, len(audio_data) - 3, 4):
-        # Canal derecho = bytes 2 y 3 de cada frame de 4 bytes
-        mono_data.append(audio_data[i + 2])
-        mono_data.append(audio_data[i + 3])
+        # Canal izquierdo = bytes 0 y 1 de cada frame de 4 bytes
+        mono_data.append(audio_data[i])
+        mono_data.append(audio_data[i + 1])
 
     return bytes(mono_data)
 
