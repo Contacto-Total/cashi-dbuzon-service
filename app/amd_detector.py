@@ -136,6 +136,22 @@ class AMDDetector:
                 "transcription": ""
             }
 
+        # REGLA 0: Detectar números de teléfono dictados
+        # Los buzones de voz frecuentemente dictan el número: "cinco uno nueve ocho tres..."
+        # Un humano NUNCA dicta su propio número al contestar
+        digit_words = ["cero", "uno", "dos", "tres", "cuatro", "cinco",
+                       "seis", "siete", "ocho", "nueve"]
+        words = text_lower.split()
+        digit_count = sum(1 for w in words if w in digit_words)
+        if digit_count >= 4:
+            return {
+                "result": "MACHINE",
+                "confidence": 0.85,
+                "reason": f"Numero de telefono dictado detectado ({digit_count} digitos)",
+                "transcription": text_lower,
+                "keywords": ["phone_number_dictated"]
+            }
+
         # Contar palabras clave de buzon
         keywords_found = []
         for keyword in VOICEMAIL_KEYWORDS:
@@ -340,8 +356,7 @@ class AMDSession:
         )
 
         # Si despues del timeout el resultado es UNKNOWN, optar por HUMAN
-        # CAMBIO: Silencio/timeout ahora se trata como HUMANO
-        # Una persona puede contestar y quedarse en silencio esperando
+        # Una persona puede contestar y quedarse en silencio esperando al agente
         # Es mejor conectar a un agente que colgar a un cliente real
         if analysis["result"] == "UNKNOWN":
             analysis = {
