@@ -218,8 +218,8 @@ class AMDDetector:
                     "transcription": text_lower
                 }
 
-        # REGLA 5: Si es corto (2-4 palabras) y NO es saludo conocido = UNKNOWN
-        # Dar más tiempo para escuchar el contexto completo
+        # REGLA 5: Si es corto (2-4 palabras) y NO es saludo conocido
+        # Verificar si tiene palabras conversacionales humanas
         if len(words) <= 4 and len(keywords_found) == 0:
             # Verificar si contiene al menos un saludo humano
             has_greeting = any(g in text_lower for g in human_greetings)
@@ -230,12 +230,31 @@ class AMDDetector:
                     "reason": f"Respuesta corta con saludo: '{text_lower}'",
                     "transcription": text_lower
                 }
-            else:
-                # No tiene saludo conocido - probablemente fragmento de buzón
+
+            # Palabras que un humano real usa al contestar (no son saludos pero sí conversacionales)
+            human_conversational = [
+                "qué", "que", "quieres", "quien", "quién", "cómo", "como",
+                "dime", "habla", "hablar", "llamar", "momento", "espera",
+                "ya", "ajá", "aja", "oye", "oiga", "ver", "voy",
+                "estoy", "puedo", "necesita", "busca", "señor", "señora"
+            ]
+            has_conversational = any(w in words for w in human_conversational)
+
+            if has_conversational:
                 return {
-                    "result": "UNKNOWN",
-                    "confidence": 0.50,
-                    "reason": f"Respuesta corta sin saludo conocido: '{text_lower}' - esperando mas audio",
+                    "result": "HUMAN",
+                    "confidence": 0.65,
+                    "reason": f"Respuesta corta conversacional: '{text_lower}'",
+                    "transcription": text_lower
+                }
+            else:
+                # No tiene saludo NI palabras conversacionales = fragmento de buzón
+                # Un humano real dice "aló", "hola", "qué quieres", "dime", etc.
+                # "cree cree cinco", "ocho pero", "cuando uno cree" NO son respuestas humanas
+                return {
+                    "result": "MACHINE",
+                    "confidence": 0.70,
+                    "reason": f"Fragmento sin saludo ni palabras conversacionales: '{text_lower}'",
                     "transcription": text_lower
                 }
 
