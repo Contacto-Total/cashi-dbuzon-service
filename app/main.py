@@ -116,23 +116,60 @@ def _stereo_to_mono(audio_data: bytes) -> bytes:
     return bytes(mono_data)
 
 
+def _parse_wav_header(audio_data: bytes) -> dict:
+    """
+    Parsea WAV header para obtener info del audio.
+    Returns dict con channels, sample_rate, bits_per_sample, data_offset
+    o None si no es WAV.
+    """
+    if len(audio_data) < 44:
+        return None
+    # Verificar magic bytes: RIFF....WAVE
+    if audio_data[0:4] != b'RIFF' or audio_data[8:12] != b'WAVE':
+        return None
+    import struct
+    channels = struct.unpack_from('<H', audio_data, 22)[0]
+    wav_sample_rate = struct.unpack_from('<I', audio_data, 24)[0]
+    bits_per_sample = struct.unpack_from('<H', audio_data, 34)[0]
+    return {
+        "channels": channels,
+        "sample_rate": wav_sample_rate,
+        "bits_per_sample": bits_per_sample,
+        "data_offset": 44
+    }
+
+
 def _process_audio_sync(call_id: str, audio_data: bytes, sample_rate: int) -> dict:
     """
     Funcion sincrona para procesar audio AMD.
     Se ejecuta en ThreadPoolExecutor para permitir multiples analisis en paralelo.
 
     Flujo:
-    1. Convertir estéreo a mono si es necesario
-    2. Detectar beep (rapido, ~10-50ms) -> Si hay beep = MACHINE
-    3. Si no hay beep, transcribir con Vosk -> Analizar texto
+    1. Detectar WAV header y extraer PCM raw
+    2. Convertir estéreo a mono SOLO si el audio es estéreo
+    3. Detectar beep (rapido, ~10-50ms) -> Si hay beep = MACHINE
+    4. Si no hay beep, transcribir con Vosk -> Analizar texto
     """
     original_size = len(audio_data)
 
-    # SIEMPRE convertir estéreo a mono (extraer canal del cliente)
-    # FreeSWITCH graba en estéreo por defecto, Vosk solo acepta mono
-    if original_size >= 8:  # Mínimo para tener al menos 2 frames estéreo
+    # PASO 0: Detectar y saltar WAV header si existe
+    wav_info = _parse_wav_header(audio_data)
+    if wav_info:
+        logger.info(f"[{call_id}] WAV header detectado: channels={wav_info['channels']}, "
+                     f"sample_rate={wav_info['sample_rate']}, bits={wav_info['bits_per_sample']}")
+        audio_data = audio_data[wav_info['data_offset']:]  # Saltar header de 44 bytes
+        num_channels = wav_info['channels']
+    else:
+        logger.info(f"[{call_id}] Sin WAV header, asumiendo PCM raw mono")
+        num_channels = 1
+
+    # Solo convertir estéreo a mono si REALMENTE es estéreo (2 canales)
+    # RECORD_STEREO=false en predictivo = audio ya es MONO, no convertir
+    if num_channels == 2 and len(audio_data) >= 8:
         audio_data = _stereo_to_mono(audio_data)
         logger.info(f"[{call_id}] Convertido estéreo a mono: {original_size} -> {len(audio_data)} bytes")
+    else:
+        logger.info(f"[{call_id}] Audio ya es mono, sin conversión ({len(audio_data)} bytes PCM)")
 
     logger.info(f"[{call_id}] Procesando audio: {len(audio_data)} bytes")
 
