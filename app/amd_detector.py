@@ -143,7 +143,7 @@ class AMDDetector:
                        "seis", "siete", "ocho", "nueve"]
         words = text_lower.split()
         digit_count = sum(1 for w in words if w in digit_words)
-        if digit_count >= 4:
+        if digit_count >= 2:
             return {
                 "result": "MACHINE",
                 "confidence": 0.85,
