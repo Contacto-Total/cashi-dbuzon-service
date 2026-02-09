@@ -374,14 +374,14 @@ class AMDSession:
             self.total_speech_duration
         )
 
-        # Si despues del timeout el resultado es UNKNOWN, optar por HUMAN
-        # Una persona puede contestar y quedarse en silencio esperando al agente
-        # Es mejor conectar a un agente que colgar a un cliente real
+        # Si despues del timeout el resultado es UNKNOWN, optar por MACHINE
+        # Si no dijeron nada en 7 segundos, es buzón o línea muerta
+        # Un humano real dice "aló", "hola" en los primeros segundos
         if analysis["result"] == "UNKNOWN":
             analysis = {
-                "result": "HUMAN",
-                "confidence": 0.50,
-                "reason": f"Silencio/timeout - asumiendo humano esperando (texto: '{text_to_analyze}')",
+                "result": "MACHINE",
+                "confidence": 0.60,
+                "reason": f"Silencio/timeout - sin respuesta en 7s (texto: '{text_to_analyze}')",
                 "transcription": text_to_analyze
             }
 
