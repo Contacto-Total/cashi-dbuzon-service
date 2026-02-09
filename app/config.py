@@ -1,7 +1,7 @@
 import os
 
 # Ruta al modelo Vosk
-VOSK_MODEL_PATH = os.getenv("VOSK_MODEL_PATH", "models/vosk-model-es-0.42")
+VOSK_MODEL_PATH = os.getenv("VOSK_MODEL_PATH", "models/vosk-model-small-es-0.42")
 
 # Configuracion AMD
 AMD_DECISION_TIMEOUT_SECONDS = 3.5  # Tiempo maximo para tomar decision
