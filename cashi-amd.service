@@ -1,0 +1,17 @@
+[Unit]
+Description=Cashi AMD Service - Deteccion Buzon de Voz
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/cashi/cashi-amd-service
+ExecStart=/usr/bin/python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8765 --workers 2
+Restart=always
+RestartSec=5
+Environment=VOSK_MODEL_PATH=models/vosk-model-es-0.42
+Environment=AMD_HOST=0.0.0.0
+Environment=AMD_PORT=8765
+
+[Install]
+WantedBy=multi-user.target
