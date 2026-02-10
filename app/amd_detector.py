@@ -21,10 +21,12 @@ class AMDDetector:
     """
 
     # Rango de frecuencias tipicas de beeps de buzon (Hz)
-    BEEP_FREQ_MIN = 800
+    BEEP_FREQ_MIN = 900
     BEEP_FREQ_MAX = 1800
     # Umbral de energia para considerar que hay un tono
     BEEP_ENERGY_THRESHOLD = 0.3
+    # Confianza minima para aceptar un beep como real
+    BEEP_MIN_CONFIDENCE = 0.30
 
     def __init__(self):
         logger.info(f"Cargando modelo Vosk desde: {VOSK_MODEL_PATH}")
@@ -89,15 +91,20 @@ class AMDDetector:
 
                 confidence = min(0.95, beep_ratio * purity * 2)
 
-                logger.info(f"BEEP detectado: freq={dominant_freq:.0f}Hz, ratio={beep_ratio:.2f}, purity={purity:.2f}, conf={confidence:.2f}")
+                # Solo aceptar beep si la confianza supera el umbral minimo
+                if confidence >= self.BEEP_MIN_CONFIDENCE:
+                    logger.info(f"BEEP detectado: freq={dominant_freq:.0f}Hz, ratio={beep_ratio:.2f}, purity={purity:.2f}, conf={confidence:.2f}")
 
-                return {
-                    "detected": True,
-                    "frequency": float(dominant_freq),
-                    "confidence": float(confidence),
-                    "energy_ratio": float(beep_ratio),
-                    "reason": f"Tono detectado a {dominant_freq:.0f}Hz"
-                }
+                    return {
+                        "detected": True,
+                        "frequency": float(dominant_freq),
+                        "confidence": float(confidence),
+                        "energy_ratio": float(beep_ratio),
+                        "reason": f"Tono detectado a {dominant_freq:.0f}Hz"
+                    }
+                else:
+                    logger.info(f"BEEP ignorado (confianza baja): freq={dominant_freq:.0f}Hz, ratio={beep_ratio:.2f}, purity={purity:.2f}, conf={confidence:.2f}")
+
 
             return {
                 "detected": False,
@@ -183,7 +190,7 @@ class AMDDetector:
 
         # REGLA 3: Respuesta corta tipica de humano ("alo", "hola", "si", "digame")
         # Solo si es un saludo CONOCIDO y es corto
-        human_greetings = ["alo", "aló", "hola", "si", "sí", "diga", "digame", "dígame",
+        human_greetings = ["alo", "aló", "alto", "hola", "si", "sí", "diga", "digame", "dígame",
                           "bueno", "quien", "quién", "mande"]
 
         words = text_lower.split()
