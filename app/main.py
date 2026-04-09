@@ -38,7 +38,7 @@ active_sessions: dict[str, AMDSession] = {}
 
 # ThreadPoolExecutor para procesamiento paralelo de AMD
 # 3 threads por worker = 6 analisis paralelos con 2 workers
-amd_executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="amd_worker")
+amd_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="amd_worker")
 
 # Contador thread-safe para load shedding
 _analyses_in_progress = 0
