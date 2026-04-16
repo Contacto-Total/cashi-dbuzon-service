@@ -1,0 +1,211 @@
+# Cashi AMD Service v2
+**Detección de Buzón de Voz — Silero VAD + Resemblyzer + SVM**
+
+Sin transcripción. Sin Vosk. Decisión en 1-3 segundos.
+
+---
+
+## Cómo funciona
+
+```
+Audio entra (chunks 250ms)
+        ↓
+  Detección de BEEP (FFT ~5ms)
+    → Si hay beep = MACHINE inmediato
+        ↓
+  Silero VAD (tiempo real, chunks 32ms)
+    → Detecta si hay voz humana/mecánica
+        ↓
+  ¿Acumuló >= 1s de voz?   ¿Pasaron 3s sin decisión?
+        ↓                          ↓
+  Resemblyzer genera         Manda todo el audio acumulado
+  embedding (256 dims)       a Resemblyzer igual
+        ↓
+  SVM clasifica
+        ↓
+  HUMAN o MACHINE (~1-1.5s total)
+```
+
+---
+
+## Estructura
+
+```
+cashi-dbuzon-service/
+├── app/
+│   ├── __init__.py
+│   ├── config.py           # Configuración y variables de entorno
+│   ├── main.py             # FastAPI server (misma API que v1)
+│   ├── amd_detector.py     # Lógica VAD + pipeline de detección
+│   └── classifier.py       # Resemblyzer + SVM
+├── models/
+│   └── svm_model.pkl       # Generado al entrenar (no incluido en repo)
+├── training/
+│   ├── train.py            # Script de entrenamiento
+│   └── samples/
+│       ├── human/          # Tus audios .wav de personas reales
+│       └── machine/        # Tus audios .wav de buzones de voz
+├── cashi-amd.service       # Systemd service
+├── requirements.txt
+└── README.md
+```
+
+---
+
+## Instalación
+
+```bash
+# 1. Clonar repo
+git clone <tu-repo> cashi-dbuzon-service
+cd cashi-dbuzon-service
+
+# 2. Instalar dependencias
+pip install -r requirements.txt
+
+# 3. Crear carpetas de muestras
+mkdir -p training/samples/human training/samples/machine models
+```
+
+---
+
+## Entrenamiento (obligatorio antes de usar)
+
+### Paso 1: Agregar muestras de audio
+
+Copia tus grabaciones a las carpetas correspondientes:
+
+```
+training/samples/human/    → audios .wav de personas reales contestando
+training/samples/machine/  → audios .wav de buzones de voz
+```
+
+**Recomendaciones:**
+- Mínimo 50 audios por clase, ideal 150+
+- Duración: 2-6 segundos por audio (igual que lo que graba FreeSwitch)
+- Formato: WAV, 8kHz o 16kHz, mono o estéreo (el script convierte automáticamente)
+- Usa tus propias grabaciones del discador, no datasets genéricos
+
+### Paso 2: Entrenar
+
+```bash
+python training/train.py
+```
+
+El script muestra:
+- Accuracy por cross-validation
+- Reporte de clasificación
+- Matriz de confusión
+- Guarda el modelo en `models/svm_model.pkl`
+
+### Paso 3: Iniciar el servicio
+
+```bash
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8765
+```
+
+---
+
+## API (mismo contrato que v1)
+
+### POST /analyze
+
+```json
+// Request
+{
+    "call_id": "call-123",
+    "audio_base64": "<PCM 16-bit en base64>",
+    "sample_rate": 8000
+}
+
+// Response
+{
+    "call_id": "call-123",
+    "result": "HUMAN",          // o "MACHINE"
+    "confidence": 0.9234,
+    "reason": "Resemblyzer+SVM: HUMAN con 92% de confianza",
+    "forced": false,
+    "voice_seconds": 1.24,
+    "total_seconds": 1.50
+}
+```
+
+### WebSocket /ws/{call_id}
+
+```
+Cliente conecta → envía chunks binarios PCM → recibe JSON con decisión
+```
+
+### WebSocket /ws/stream
+
+```
+Cliente conecta → envía JSON config → recibe "ready" → envía chunks → recibe decisión
+```
+
+### GET /health
+
+```json
+{
+    "status": "healthy",
+    "model_loaded": true,
+    "svm_ready": true,
+    "active_sessions": 5,
+    "analyses_in_progress": 3,
+    "thread_pool_max_workers": 8
+}
+```
+
+---
+
+## Systemd (producción)
+
+```bash
+# Copiar service file
+sudo cp cashi-amd.service /etc/systemd/system/
+
+# Habilitar e iniciar
+sudo systemctl daemon-reload
+sudo systemctl enable cashi-amd
+sudo systemctl start cashi-amd
+
+# Ver logs
+sudo journalctl -u cashi-amd -f
+```
+
+---
+
+## Consumo de recursos estimado
+
+| Recurso | Valor |
+|---|---|
+| RAM base (modelos cargados) | ~400-500MB |
+| RAM por llamada en paralelo | ~15-20MB |
+| RAM con 100 paralelos | ~2GB total |
+| CPU por análisis | Bajo (SVM es muy rápido) |
+| GPU | No requerida |
+| Latencia promedio | 1 - 1.5s |
+| Latencia máxima (fallback) | 3s |
+
+---
+
+## Variables de entorno
+
+| Variable | Default | Descripción |
+|---|---|---|
+| `SVM_MODEL_PATH` | `models/svm_model.pkl` | Ruta al modelo SVM |
+| `AMD_TIMEOUT` | `3.0` | Timeout máximo en segundos |
+| `AMD_MIN_VOICE_SECONDS` | `1.0` | Segundos de voz para clasificar |
+| `AMD_FALLBACK_SECONDS` | `3.0` | Tiempo fallback sin decisión |
+| `AMD_CONFIDENCE_THRESHOLD` | `0.70` | Confianza mínima del SVM |
+| `AUDIO_SAMPLE_RATE` | `8000` | Sample rate de FreeSwitch |
+| `VAD_THRESHOLD` | `0.5` | Sensibilidad de Silero VAD |
+| `AMD_HOST` | `0.0.0.0` | Host del servidor |
+| `AMD_PORT` | `8765` | Puerto del servidor |
+
+---
+
+## Tips de tuning
+
+- Si entran muchos buzones como HUMAN → bajar `VAD_THRESHOLD` a 0.4 o agregar más muestras de buzón
+- Si entran muchos humanos como MACHINE → bajar `AMD_CONFIDENCE_THRESHOLD` a 0.65
+- Si la latencia es muy alta → bajar `AMD_MIN_VOICE_SECONDS` a 0.8
+- El modelo mejora directamente con más muestras de tus propias llamadas

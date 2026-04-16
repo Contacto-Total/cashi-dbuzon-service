@@ -1,48 +1,61 @@
 import os
 
-# Ruta al modelo Vosk
-VOSK_MODEL_PATH = os.getenv("VOSK_MODEL_PATH", "models/vosk-model-es-0.42")
+# ============================================================
+# MODELO SVM
+# ============================================================
+# Ruta donde se guarda/carga el modelo SVM entrenado
+SVM_MODEL_PATH = os.getenv("SVM_MODEL_PATH", "models/svm_model.pkl")
 
-# Configuracion AMD
-AMD_DECISION_TIMEOUT_SECONDS = 3.5  # Tiempo maximo para tomar decision
-AMD_MIN_SPEECH_FOR_MACHINE = 2.5    # Si habla mas de 2.5s continuo = maquina
+# ============================================================
+# CONFIGURACION AMD
+# ============================================================
 
-# Palabras clave que indican buzon de voz o sistema automatizado
-VOICEMAIL_KEYWORDS = [
-    # Espanol - Buzón de voz tradicional
-    "mensaje", "buzón", "buzon", "tono", "ocupado", "disponible",
-    "después del", "despues del", "deje su", "deja tu", "no se encuentra",
-    "fuera de servicio", "no está disponible", "no esta disponible",
-    "vuelva a llamar", "intentelo más tarde", "intentelo mas tarde",
-    "número que usted marcó", "numero que usted marco",
-    "en este momento", "por favor", "gracias por llamar",
-    "horario de atención", "horario de atencion",
-    "marque la extensión", "marque la extension",
-    "bienvenido", "ha comunicado con", "ha llamado a",
-    # Buzón lleno / capacidad máxima
-    "capacidad máxima", "capacidad maxima", "alcanzó la capacidad",
-    "alcanzo la capacidad", "buzón lleno", "buzon lleno",
-    "no puede recibir", "más mensajes", "mas mensajes",
-    "alcanzó su", "alcanzo su", "está lleno", "esta lleno",
-    # Buzón de voz personalizado
-    "dejas tu nombre", "deja tu nombre", "tu nombre y",
-    "motivo de tu llamada", "motivo de la llamada",
-    "te llamaremos", "te devolvemos", "devolvere la llamada",
-    "no puedo atender", "no puedo contestar", "estoy ocupado",
-    "deja tu mensaje", "dejar un mensaje",
-    # Operadora / Sistema telefónico
-    "el número marcado", "el numero marcado", "fuera del área",
-    "fuera del area", "apagado o fuera", "temporalmente fuera",
-    "servicio de mensajes", "servicio de voz",
-    # Asistentes de voz virtuales (Google, Alexa, etc.)
-    "asistente de voz", "asistente virtual", "estoy usando un asistente",
-    "robot", "automatizado", "sistema automatizado",
-    "inteligencia artificial", "asistente personal",
-    # Ingles (por si acaso)
-    "voicemail", "leave a message", "after the tone", "beep",
-    "not available", "please call back", "voice assistant"
-]
+# Tiempo maximo total para tomar decision (segundos)
+AMD_DECISION_TIMEOUT_SECONDS = float(os.getenv("AMD_TIMEOUT", "3.0"))
 
-# Puerto del servidor
+# Segundos de audio con voz que necesita Resemblyzer para clasificar con precision
+AMD_MIN_VOICE_SECONDS = float(os.getenv("AMD_MIN_VOICE_SECONDS", "1.0"))
+
+# Si VAD no detecta voz clara en este tiempo, acumula y manda todo a Resemblyzer
+AMD_FALLBACK_SECONDS = float(os.getenv("AMD_FALLBACK_SECONDS", "3.0"))
+
+# Umbral de confianza del SVM para aceptar una decision (0.0 - 1.0)
+AMD_CONFIDENCE_THRESHOLD = float(os.getenv("AMD_CONFIDENCE_THRESHOLD", "0.70"))
+
+# ============================================================
+# SILERO VAD
+# ============================================================
+
+# Sample rate de trabajo interno (Silero VAD opera a 16000Hz)
+VAD_SAMPLE_RATE = 16000
+
+# Sample rate del audio entrante desde FreeSwitch (tipicamente 8000Hz)
+AUDIO_INPUT_SAMPLE_RATE = int(os.getenv("AUDIO_SAMPLE_RATE", "8000"))
+
+# Umbral de probabilidad de voz para Silero VAD (0.0 - 1.0)
+# Mas alto = mas estricto, menos falsos positivos
+VAD_THRESHOLD = float(os.getenv("VAD_THRESHOLD", "0.5"))
+
+# Tamano del chunk de audio que procesa VAD (samples a 16kHz)
+# 512 samples = 32ms a 16kHz — optimo para Silero
+VAD_CHUNK_SAMPLES = 512
+
+# ============================================================
+# DETECCION DE BEEP / TONO
+# ============================================================
+
+# Rango de frecuencias tipicas de beeps de buzon de voz (Hz)
+BEEP_FREQ_MIN = 800
+BEEP_FREQ_MAX = 1800
+
+# Proporcion minima de energia en rango de beep para considerar tono
+BEEP_ENERGY_THRESHOLD = 0.35
+
+# Confianza minima para aceptar deteccion de beep
+BEEP_MIN_CONFIDENCE = 0.40
+
+# ============================================================
+# SERVIDOR
+# ============================================================
 SERVER_HOST = os.getenv("AMD_HOST", "0.0.0.0")
 SERVER_PORT = int(os.getenv("AMD_PORT", "8765"))
