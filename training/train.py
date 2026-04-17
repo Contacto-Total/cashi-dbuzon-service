@@ -47,7 +47,12 @@ def load_audio(path: Path, target_sr: int = TARGET_SR) -> np.ndarray | None:
     """
     try:
         # librosa carga y resamplea automaticamente
-        audio, sr = librosa.load(str(path), sr=target_sr, mono=True)
+        audio, sr = librosa.load(
+                str(path),
+                sr=target_sr,
+                mono=True,
+                res_type="scipy"
+            )
         if len(audio) < target_sr * 0.5:  # Minimo 0.5s de audio
             logger.warning(f"Audio muy corto (<0.5s): {path.name}")
             return None
