@@ -1,13 +1,14 @@
 [Unit]
-Description=Cashi AMD Service - Deteccion Buzon de Voz
+Description=Cashi AMD Service v2 - Deteccion Buzon de Voz (Silero VAD + Resemblyzer)
 After=network.target
 
 [Service]
 Type=simple
 User=ubuntu
-WorkingDirectory=/home/ubuntu/cashi/cashi-amd-service
+WorkingDirectory=/home/ubuntu/cashi/cashi-dbuzon-service
 
-ExecStart=/usr/bin/python3 -m uvicorn app.main:app \
+# Usar el uvicorn del venv, NO el del sistema
+ExecStart=/home/ubuntu/cashi/cashi-dbuzon-service/venv/bin/uvicorn app.main:app \
     --host 0.0.0.0 \
     --port 8765 \
     --workers 1
@@ -15,8 +16,23 @@ ExecStart=/usr/bin/python3 -m uvicorn app.main:app \
 Restart=always
 RestartSec=5
 
-Environment=AMD_HOST=0.0.0.0
-Environment=AMD_PORT=8765
+# Logs en tiempo real en journalctl
+Environment=PYTHONUNBUFFERED=1
+
+# Ruta absoluta al modelo SVM
+# Generarlo con: python training/train.py (desde el WorkingDirectory)
+Environment=SVM_MODEL_PATH=/home/ubuntu/cashi/cashi-dbuzon-service/models/svm_model.pkl
+
+# Configuracion AMD
+Environment=AMD_TIMEOUT=3.0
+Environment=AMD_MIN_VOICE_SECONDS=1.0
+Environment=AMD_FALLBACK_SECONDS=3.0
+Environment=AMD_CONFIDENCE_THRESHOLD=0.70
+Environment=VAD_THRESHOLD=0.5
+
+# Sample rate entrante desde FreeSwitch (8kHz es correcto)
+# El codigo resamplea internamente a 16kHz para Silero VAD
+Environment=AUDIO_SAMPLE_RATE=8000
 
 [Install]
 WantedBy=multi-user.target
