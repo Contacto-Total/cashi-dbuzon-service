@@ -27,7 +27,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.metrics import classification_report, confusion_matrix
 from resemblyzer import VoiceEncoder, preprocess_wav
 import soundfile as sf
-import librosa
+from scipy.signal import resample_poly
 
 # ── Configuracion ─────────────────────────────────────────────────────────────
 SAMPLES_DIR = Path("training/samples")
@@ -40,23 +40,23 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 
-def load_audio(path: Path, target_sr: int = TARGET_SR) -> np.ndarray | None:
-    """
-    Carga un archivo de audio y lo convierte a float32 mono a target_sr.
-    Soporta: WAV, MP3, OGG, FLAC, etc.
-    """
+def load_audio(path: Path, target_sr: int = 16000):
     try:
-        # librosa carga y resamplea automaticamente
-        audio, sr = librosa.load(
-                str(path),
-                sr=target_sr,
-                mono=True,
-                res_type="scipy"
-            )
-        if len(audio) < target_sr * 0.5:  # Minimo 0.5s de audio
-            logger.warning(f"Audio muy corto (<0.5s): {path.name}")
+        audio, sr = sf.read(str(path))
+
+        if len(audio.shape) > 1:
+            audio = audio.mean(axis=1)
+
+        if sr != target_sr:
+            audio = resample_poly(audio, target_sr, sr)
+
+        audio = audio.astype(np.float32)
+
+        if len(audio) < target_sr * 0.5:
             return None
-        return audio.astype(np.float32)
+
+        return audio
+
     except Exception as e:
         logger.error(f"Error cargando {path.name}: {e}")
         return None
