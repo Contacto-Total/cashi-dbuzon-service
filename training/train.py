@@ -18,6 +18,7 @@ import os
 import sys
 import logging
 import numpy as np
+from streamlit import audio
 import joblib
 from pathlib import Path
 from sklearn.svm import SVC
@@ -65,8 +66,8 @@ def load_audio(path: Path, target_sr: int = 16000):
 def get_embedding(encoder: VoiceEncoder, audio: np.ndarray) -> np.ndarray | None:
     """Genera embedding de 256 dimensiones con Resemblyzer."""
     try:
-        wav = preprocess_wav(audio, source_sr=TARGET_SR)
-        return encoder.embed_utterance(wav)
+        audio = audio / (np.max(np.abs(audio)) + 1e-9)  # normalizar
+        return encoder.embed_utterance(audio)
     except Exception as e:
         logger.error(f"Error generando embedding: {e}")
         return None
