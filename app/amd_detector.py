@@ -325,7 +325,17 @@ class AMDSession:
         offset = 0
         vad_probs = []  # DIAGNÓSTICO: almacenar probabilidades
 
+        logger.info(f"GLOBAL RMS 16k: {np.sqrt(np.mean(audio_16k**2)):.5f}")
+        logger.info(f"PEAK 16k: {np.max(np.abs(audio_16k)):.5f}")
+
         while offset + VAD_CHUNK_SAMPLES <= len(audio_16k):
+            chunk = chunk.astype(np.float32)
+
+            # CLAMP suave (no hard normalize)
+            peak = np.max(np.abs(chunk))
+            if peak > 0:
+                chunk = chunk / max(peak, 1.0)
+
             chunk = audio_16k[offset: offset + VAD_CHUNK_SAMPLES]
             prob = self._vad(chunk, VAD_SAMPLE_RATE)
 
