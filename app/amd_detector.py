@@ -60,8 +60,7 @@ class SileroVAD:
 
     def _reset_state(self):
         """Resetea el estado interno del modelo (necesario por sesion de llamada)."""
-        self._h = np.zeros((2, 1, 64), dtype=np.float32)
-        self._c = np.zeros((2, 1, 64), dtype=np.float32)
+        self._state = np.zeros((2, 1, 128), dtype=np.float32)
 
     def __call__(self, audio_chunk: np.ndarray, sample_rate: int = VAD_SAMPLE_RATE) -> float:
         """
@@ -78,9 +77,13 @@ class SileroVAD:
         x = audio_chunk.reshape(1, -1).astype(np.float32)
         sr = np.array(sample_rate, dtype=np.int64)
 
-        out, self._h, self._c = self.session.run(
+        out, self._state = self.session.run(
             None,
-            {"input": x, "sr": sr, "h": self._h, "c": self._c}
+            {
+                "input": x,
+                "state": self._state,
+                "sr": sr
+            }
         )
         return float(out[0][0])
 
