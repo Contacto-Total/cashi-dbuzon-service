@@ -124,52 +124,43 @@ def _stereo_to_mono(audio_data: bytes) -> bytes:
 
 def _prepare_audio(audio_data: bytes, sample_rate: int) -> tuple[bytes, int]:
     """
-    Prepara el audio para el detector:
-    - Salta WAV header si existe
-    - Convierte estereo a mono si es necesario
-    Retorna (pcm_bytes, sample_rate_efectivo)
+    Prepara audio:
+    - WAV header
+    - mono
+    - NORMALIZA a 16kHz SIEMPRE (CRÍTICO)
     """
-    original_len = len(audio_data)
 
     wav_info = _parse_wav_header(audio_data)
     if wav_info:
-        logger.debug(
-            f"WAV header: channels={wav_info['channels']}, "
-            f"sr={wav_info['sample_rate']}, bits={wav_info['bits_per_sample']}"
-        )
         audio_data = audio_data[wav_info["data_offset"]:]
         sample_rate = wav_info["sample_rate"]
-        
-        # Validar bits per sample
-        if wav_info["bits_per_sample"] != 16:
-            logger.warning(
-                f"Audio no es 16-bit PCM (es {wav_info['bits_per_sample']}-bit), "
-                "puede haber problemas de decodificación"
-            )
-        
+
         if wav_info["channels"] == 2:
-            logger.debug("Convirtiendo estéreo → mono")
             audio_data = _stereo_to_mono(audio_data)
 
-    # Validar longitud mínima
-    min_samples = sample_rate // 2  # 0.5 segundos
-    min_bytes = min_samples * 2  # 16-bit = 2 bytes/sample
-    
-    if len(audio_data) < min_bytes:
-        logger.warning(
-            f"Audio muy corto: {len(audio_data)} bytes "
-            f"({len(audio_data)/2/sample_rate:.2f}s), mínimo {min_bytes} bytes"
-        )
-    
-    logger.debug(
-        f"Audio preparado: {original_len} → {len(audio_data)} bytes, "
-        f"{sample_rate}Hz, {len(audio_data)/2/sample_rate:.2f}s"
+    # 🔥 CONVERTIR BYTES → NUMPY
+    audio_np = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32768.0
+
+    # 🔥 FORZAR 16kHz (CRÍTICO PARA SILERO)
+    if sample_rate != 16000:
+        gcd = np.gcd(sample_rate, 16000)
+        up = 16000 // gcd
+        down = sample_rate // gcd
+
+        audio_np = scipy.signal.resample_poly(audio_np, up, down).astype(np.float32)
+        sample_rate = 16000
+
+    # 🔥 DEBUG CLAVE
+    logger.info(
+        f"[PREP AUDIO FIX] sr={sample_rate}, "
+        f"min={audio_np.min():.3f}, max={audio_np.max():.3f}, "
+        f"rms={np.sqrt(np.mean(audio_np**2)):.4f}"
     )
 
-    logger.info(
-        f"[PREP AUDIO] bytes={len(audio_data)}, sample_rate={sample_rate}"
-    )
-    return audio_data, sample_rate
+    # volver a bytes PCM float32 -> int16 (para tu pipeline actual)
+    audio_int16 = (audio_np * 32767).astype(np.int16)
+
+    return audio_int16.tobytes(), sample_rate
 
 
 def _process_audio_sync(call_id: str, audio_data: bytes, sample_rate: int) -> dict:

@@ -268,6 +268,13 @@ class AMDSession:
                 forced=False
             )
 
+
+        logger.info(
+            f"[{self.call_id}] AUDIO INPUT CHECK: "
+            f"min={audio_f32.min():.4f}, max={audio_f32.max():.4f}, "
+            f"rms={np.sqrt(np.mean(audio_f32**2)):.4f}"
+        )
+
         # PASO 2: Convertir y resamplear
         audio_f32 = self._bytes_to_float32(audio_bytes)
 
@@ -289,7 +296,7 @@ class AMDSession:
             f"RMS={audio_rms:.3f}, samples={len(audio_f32)}"
         )
 
-        audio_16k = self._resample_to_16k(audio_f32)
+        audio_16k = audio_f32  # YA VIENE NORMALIZADO A 16k
 
         # DIAGNÓSTICO: Log después del resampleo
         logger.info(
@@ -309,7 +316,7 @@ class AMDSession:
             prob = self._vad(chunk, VAD_SAMPLE_RATE)
 
             logger.info(
-                f"[{self.call_id}] VAD prob={prob:.4f}"
+                f"[{self.call_id}] VAD prob={prob:.6f} | chunk_max={np.max(np.abs(chunk)):.4f}"
             )
 
             vad_probs.append(prob)  # 🔥 FALTABA ESTO
