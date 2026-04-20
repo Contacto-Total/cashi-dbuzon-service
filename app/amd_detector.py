@@ -5,6 +5,8 @@ Usa Silero VAD (ONNX, sin PyTorch) + Resemblyzer + SVM
 import logging
 import os
 import urllib.request
+import io
+import wave
 import numpy as np
 import scipy.signal
 import onnxruntime as ort
@@ -214,9 +216,10 @@ class AMDSession:
         self._resample_ratio = VAD_SAMPLE_RATE / sample_rate
 
     def _bytes_to_float32(self, audio_bytes: bytes) -> np.ndarray:
-        audio = np.frombuffer(audio_bytes, dtype=np.int16)
-        logger.info(f"RAW INT16 MAX: {np.max(np.abs(audio))}")
-        logger.info(f"RAW INT16 LEN: {len(audio)}")
+        with wave.open(io.BytesIO(audio_bytes), "rb") as w:
+            frames = w.readframes(w.getnframes())
+            audio = np.frombuffer(frames, dtype=np.int16)
+
         return audio.astype(np.float32) / 32768.0
 
     def _resample_to_16k(self, audio_np: np.ndarray) -> np.ndarray:
@@ -259,6 +262,8 @@ class AMDSession:
             f"[{self.call_id}] Chunk recibido: {len(audio_bytes)} bytes, "
             f"sample_rate={self.input_sample_rate}Hz"
         )
+
+        logger.info(f"[{self.call_id}] FIRST 10 BYTES: {audio_bytes[:10]}")
 
         # PASO 1: Deteccion de beep
         beep = self.detector.detect_beep(audio_bytes, self.input_sample_rate)
