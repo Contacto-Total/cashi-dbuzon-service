@@ -216,9 +216,8 @@ class AMDSession:
         self._resample_ratio = VAD_SAMPLE_RATE / sample_rate
 
     def _bytes_to_float32(self, audio_bytes: bytes) -> np.ndarray:
-        with wave.open(io.BytesIO(audio_bytes), "rb") as w:
-            frames = w.readframes(w.getnframes())
-            audio = np.frombuffer(frames, dtype=np.int16)
+        audio = np.frombuffer(audio_bytes, dtype=np.int16)
+        return audio.astype(np.float32) / 32768.0
 
         return audio.astype(np.float32) / 32768.0
 
