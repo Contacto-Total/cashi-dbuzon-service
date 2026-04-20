@@ -269,12 +269,6 @@ class AMDSession:
             )
 
 
-        logger.info(
-            f"[{self.call_id}] AUDIO INPUT CHECK: "
-            f"min={audio_f32.min():.4f}, max={audio_f32.max():.4f}, "
-            f"rms={np.sqrt(np.mean(audio_f32**2)):.4f}"
-        )
-
         # PASO 2: Convertir y resamplear
         audio_f32 = self._bytes_to_float32(audio_bytes)
 
