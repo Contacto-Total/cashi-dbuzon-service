@@ -112,14 +112,9 @@ class AMDDetector:
         logger.info("VoiceClassifier listo.")
 
     def make_vad_session(self) -> SileroVAD:
-        """
-        Crea una instancia VAD con estado propio para una sesion de llamada.
-        Cada llamada necesita su propio estado (h, c) para no interferir.
-        """
-        vad = SileroVAD.__new__(SileroVAD)
-        vad.session = self._vad_base.session  # Comparte el grafo ONNX (read-only)
-        vad._reset_state()
-        return vad
+        vad = SileroVAD()                       # ← objeto completo, __init__ corrió
+        vad.session = self._vad_base.session    # ← reemplaza session por la compartida
+        return vad                              # ← estado ya reseteado en __init__
 
     def detect_beep(self, audio_bytes: bytes, sample_rate: int = AUDIO_INPUT_SAMPLE_RATE) -> dict:
         """
