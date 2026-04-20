@@ -214,9 +214,13 @@ class AMDSession:
         self._resample_ratio = VAD_SAMPLE_RATE / sample_rate
 
     def _bytes_to_float32(self, audio_bytes: bytes) -> np.ndarray:
-        """Convierte PCM 16-bit bytes a float32 normalizado [-1, 1]"""
+        """
+        Convierte PCM 16-bit bytes a float32.
+        Los bytes vienen de _prepare_audio que multiplica por 32767,
+        entonces dividimos por el mismo número para mantener consistencia.
+        """
         audio = np.frombuffer(audio_bytes, dtype=np.int16)
-        return audio.astype(np.float32) / 32768.0
+        return audio.astype(np.float32) / 32767.0  # ✅ CAMBIO: 32768 → 32767
 
     def _resample_to_16k(self, audio_np: np.ndarray) -> np.ndarray:
         """Resamplea audio a 16kHz si es necesario."""
