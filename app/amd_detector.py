@@ -214,8 +214,8 @@ class AMDSession:
         self._resample_ratio = VAD_SAMPLE_RATE / sample_rate
 
     def _bytes_to_float32(self, audio_bytes: bytes) -> np.ndarray:
-        """Convierte PCM 16-bit bytes a float32 normalizado [-1, 1]"""
-        return np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+        audio = np.frombuffer(audio_bytes, dtype=np.int16)
+        return audio.astype(np.float32) / 32768.0
 
     def _resample_to_16k(self, audio_np: np.ndarray) -> np.ndarray:
         """Resamplea audio a 16kHz si es necesario."""
@@ -271,6 +271,16 @@ class AMDSession:
         # PASO 2: Convertir y resamplear
         audio_f32 = self._bytes_to_float32(audio_bytes)
 
+        if np.max(np.abs(audio_f32)) < 0.01:
+            logger.warning(
+                f"[{self.call_id}] AUDIO CASI SILENCIO O MAL DECODIFICADO"
+            )
+
+        logger.info(
+            f"[{self.call_id}] AUDIO RANGE: min={audio_f32.min():.4f}, max={audio_f32.max():.4f}, "
+            f"mean={audio_f32.mean():.6f}"
+        )
+
         # DIAGNÓSTICO: Validar rango del audio
         audio_min, audio_max = audio_f32.min(), audio_f32.max()
         audio_rms = np.sqrt(np.mean(audio_f32**2))
@@ -297,19 +307,25 @@ class AMDSession:
         while offset + VAD_CHUNK_SAMPLES <= len(audio_16k):
             chunk = audio_16k[offset: offset + VAD_CHUNK_SAMPLES]
             prob = self._vad(chunk, VAD_SAMPLE_RATE)
+
+            logger.info(
+                f"[{self.call_id}] VAD prob={prob:.4f}"
+            )
+
+            vad_probs.append(prob)  # 🔥 FALTABA ESTO
+
             if prob >= VAD_THRESHOLD:
                 voice_samples += VAD_CHUNK_SAMPLES
+
             offset += VAD_CHUNK_SAMPLES
 
         self._voice_seconds += voice_samples / VAD_SAMPLE_RATE
 
         # DIAGNÓSTICO: Log de probabilidades VAD
-        if vad_probs:
-            logger.info(
-                f"[{self.call_id}] VAD: {len(vad_probs)} chunks, "
-                f"prob_max={max(vad_probs):.3f}, prob_mean={np.mean(vad_probs):.3f}, "
-                f"threshold={VAD_THRESHOLD}, voice_detected={voice_samples/VAD_SAMPLE_RATE:.2f}s"
-            )
+        logger.info(
+            f"[{self.call_id}] voice_samples={voice_samples}, "
+            f"voice_seconds={voice_samples / VAD_SAMPLE_RATE:.2f}"
+        )
 
         logger.debug(
             f"[{self.call_id}] total={self._total_seconds:.2f}s "

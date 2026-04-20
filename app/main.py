@@ -165,6 +165,10 @@ def _prepare_audio(audio_data: bytes, sample_rate: int) -> tuple[bytes, int]:
         f"Audio preparado: {original_len} → {len(audio_data)} bytes, "
         f"{sample_rate}Hz, {len(audio_data)/2/sample_rate:.2f}s"
     )
+
+    logger.info(
+        f"[PREP AUDIO] bytes={len(audio_data)}, sample_rate={sample_rate}"
+    )
     return audio_data, sample_rate
 
 
@@ -215,6 +219,7 @@ async def analyze_audio(request: AnalyzeRequest):
 
     try:
         audio_data = base64.b64decode(request.audio_base64)
+        logger.info(f"[{request.call_id}] RAW AUDIO BYTES: {len(audio_data)}")
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(
             amd_executor,
