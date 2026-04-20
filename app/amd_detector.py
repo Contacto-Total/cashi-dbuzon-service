@@ -79,11 +79,10 @@ class SileroVAD:
         x = audio_chunk.reshape(1, -1).astype(np.float32)
         sr = np.array(sample_rate, dtype=np.int64)
 
-        out, self._state = self.session.run(
+        out = self.session.run(
             None,
             {
                 "input": x,
-                "state": self._state,
                 "sr": sr
             }
         )
