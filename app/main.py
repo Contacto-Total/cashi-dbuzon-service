@@ -271,20 +271,22 @@ async def websocket_amd(websocket: WebSocket, call_id: str):
                 break
 
             try:
-                audio_data = await asyncio.wait_for(
+                audio_bytes = await asyncio.wait_for(
                     websocket.receive_bytes(),
                     timeout=0.3
                 )
 
-                # Preparar audio (WAV header, estereo→mono)
-                audio_data, _ = _prepare_audio(audio_data, AUDIO_INPUT_SAMPLE_RATE)
+                # ✅ _prepare_audio retorna float32
+                audio_f32, _ = _prepare_audio(audio_bytes, AUDIO_INPUT_SAMPLE_RATE)
+                
+                # ✅ Convertir a bytes para process_audio
+                audio_bytes_prepared = (audio_f32 * 32767).astype(np.int16).tobytes()
 
-                # Procesar en executor para no bloquear el event loop
                 loop = asyncio.get_event_loop()
                 result = await loop.run_in_executor(
                     amd_executor,
                     session.process_audio,
-                    audio_data
+                    audio_bytes_prepared
                 )
 
                 if result:
