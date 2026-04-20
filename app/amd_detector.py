@@ -118,17 +118,18 @@ class AMDDetector:
         return vad
 
     def detect_beep(self, audio_bytes: bytes, sample_rate: int = AUDIO_INPUT_SAMPLE_RATE) -> dict:
-        """
-        Detecta pitido/tono tipico de buzon de voz usando FFT.
-        Rapido: ~5ms. Se ejecuta antes que VAD y Resemblyzer.
-        """
         try:
-            audio_np = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32)
+            audio_np = np.frombuffer(audio_bytes, dtype=np.int16)
+
+            # 🔥 stereo → mono correcto
+            if len(audio_np) % 2 == 0:
+                audio_np = audio_np.reshape(-1, 2).mean(axis=1)
+
+            # normalizar UNA sola vez
+            audio_np = audio_np.astype(np.float32) / 32768.0
 
             if len(audio_np) < 1024:
                 return {"detected": False, "reason": "Audio muy corto para detectar beep"}
-
-            audio_np /= 32768.0
 
             fft_magnitude = np.abs(np.fft.rfft(audio_np))
             freqs = np.fft.rfftfreq(len(audio_np), 1.0 / sample_rate)
@@ -144,12 +145,13 @@ class AMDDetector:
 
             beep_mags = fft_magnitude.copy()
             beep_mags[~beep_mask] = 0
+
             dominant_idx = np.argmax(beep_mags)
             dominant_freq = freqs[dominant_idx] if beep_mags[dominant_idx] > 0 else 0
 
             if beep_ratio > BEEP_ENERGY_THRESHOLD and dominant_freq > 0:
                 peak_energy = fft_magnitude[dominant_idx]
-                purity = peak_energy / beep_energy if beep_energy > 0 else 0
+                purity = peak_energy / (beep_energy + 1e-9)
                 confidence = min(0.95, beep_ratio * purity * 2)
 
                 if confidence >= BEEP_MIN_CONFIDENCE:
@@ -173,7 +175,7 @@ class AMDDetector:
 
         except Exception as e:
             logger.error(f"Error en deteccion de beep: {e}")
-            return {"detected": False, "reason": f"Error: {str(e)}"}
+            return {"detected": False, "reason": str(e)}
 
     def classify_audio(self, audio_np: np.ndarray) -> dict:
         """Clasifica audio acumulado como HUMAN o MACHINE via Resemblyzer + SVM."""
