@@ -123,14 +123,15 @@ def _stereo_to_mono(audio_data: bytes) -> bytes:
     return mono.astype(np.int16).tobytes()
 
 
-def _prepare_audio(audio_data: bytes, sample_rate: int) -> tuple[bytes, int]:
+def _prepare_audio(audio_data: bytes, sample_rate: int) -> tuple[np.ndarray, int]:
     """
     Prepara audio:
     - WAV header
     - mono
     - NORMALIZA a 16kHz SIEMPRE (CRÍTICO)
+    
+    RETORNA: (audio_float32, sample_rate)
     """
-
     wav_info = _parse_wav_header(audio_data)
     if wav_info:
         audio_data = audio_data[wav_info["data_offset"]:]
@@ -139,10 +140,10 @@ def _prepare_audio(audio_data: bytes, sample_rate: int) -> tuple[bytes, int]:
         if wav_info["channels"] == 2:
             audio_data = _stereo_to_mono(audio_data)
 
-    # CONVERTIR BYTES → NUMPY
+    # CONVERTIR BYTES → NUMPY (una sola vez)
     audio_np = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32768.0
 
-     # Resamplear a 16kHz SIEMPRE si es necesario
+    # Resamplear a 16kHz SIEMPRE si es necesario
     if sample_rate != 16000:
         gcd = np.gcd(sample_rate, 16000)
         up = 16000 // gcd
@@ -150,36 +151,40 @@ def _prepare_audio(audio_data: bytes, sample_rate: int) -> tuple[bytes, int]:
         audio_np = scipy.signal.resample_poly(audio_np, up, down).astype(np.float32)
         sample_rate = 16000
 
-    # 🔥 DEBUG CLAVE
     logger.info(
         f"[PREP AUDIO] sr={sample_rate}, samples={len(audio_np)}, "
+        f"min={audio_np.min():.4f}, max={audio_np.max():.4f}, "
         f"rms={np.sqrt(np.mean(audio_np**2)):.4f}"
     )
 
-    # Volver a bytes PCM int16
-    audio_int16 = (audio_np * 32767).astype(np.int16)
-    return audio_int16.tobytes(), sample_rate
+    # ✅ RETORNAR FLOAT32 DIRECTO (no convertir a int16)
+    return audio_np, sample_rate
 
 
 def _process_audio_sync(call_id: str, audio_data: bytes, sample_rate: int) -> dict:
     """
-    Procesamiento sincrono AMD. Se ejecuta en ThreadPoolExecutor.
-    Crea una sesion temporal, procesa todo el audio en chunks y retorna decision.
+    Procesamiento sincrono AMD.
     """
-    audio_data, sample_rate = _prepare_audio(audio_data, sample_rate)
+    # ✅ _prepare_audio ahora retorna float32 directo
+    audio_f32, sample_rate = _prepare_audio(audio_data, sample_rate)
 
-    logger.info(f"[{call_id}] Procesando {len(audio_data)} bytes a {sample_rate}Hz")
+    logger.info(
+        f"[{call_id}] Procesando {len(audio_f32)} samples a {sample_rate}Hz"
+    )
 
     session = AMDSession(amd_detector, call_id, sample_rate=sample_rate)
 
-    # Procesar en chunks de ~250ms para simular streaming
-    # 8000Hz * 2 bytes * 0.25s = 4000 bytes
-    chunk_size = int(sample_rate * 2 * 0.25)
+    # ✅ Dividir en chunks de samples (no bytes)
+    chunk_size = int(sample_rate * 0.25)  # 250ms en samples
     result = None
 
-    for i in range(0, len(audio_data), chunk_size):
-        chunk = audio_data[i: i + chunk_size]
-        result = session.process_audio(chunk)
+    for i in range(0, len(audio_f32), chunk_size):
+        chunk_f32 = audio_f32[i: i + chunk_size]
+        
+        # ✅ Convertir a bytes solo al pasar a process_audio
+        chunk_bytes = (chunk_f32 * 32767).astype(np.int16).tobytes()
+        
+        result = session.process_audio(chunk_bytes)
         if result:
             logger.info(f"[{call_id}] Decision en chunk {i // chunk_size + 1}")
             break
