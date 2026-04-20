@@ -219,8 +219,6 @@ class AMDSession:
         audio = np.frombuffer(audio_bytes, dtype=np.int16)
         return audio.astype(np.float32) / 32768.0
 
-        return audio.astype(np.float32) / 32768.0
-
     def _resample_to_16k(self, audio_np: np.ndarray) -> np.ndarray:
         """Resamplea audio a 16kHz si es necesario."""
         if not self._needs_resample:
@@ -253,6 +251,9 @@ class AMDSession:
         6. Si total >= AMD_FALLBACK_SECONDS sin decision -> clasificar con lo que hay
         7. Si silencio total en fallback -> MACHINE directo
         """
+        if len(audio_bytes) % 2 != 0:
+            logger.warning(f"[{self.call_id}] audio corrupto (bytes impar)")
+
         if self._decision_made:
             return self._final_result
         
@@ -303,6 +304,13 @@ class AMDSession:
         )
 
         audio_16k = self._resample_to_16k(audio_f32)
+        # audio_16k = scipy.signal.lfilter([1], [1, -0.97], audio_16k)
+
+        logger.info(
+            f"[{self.call_id}] AFTER RESAMPLE RAW: "
+            f"min={audio_16k.min():.6f}, max={audio_16k.max():.6f}, "
+            f"rms={np.sqrt(np.mean(audio_16k**2)):.6f}"
+        )
 
         # DIAGNÓSTICO: Log después del resampleo
         logger.info(
