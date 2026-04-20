@@ -215,6 +215,8 @@ class AMDSession:
 
     def _bytes_to_float32(self, audio_bytes: bytes) -> np.ndarray:
         audio = np.frombuffer(audio_bytes, dtype=np.int16)
+        logger.info(f"RAW INT16 MAX: {np.max(np.abs(audio))}")
+        logger.info(f"RAW INT16 LEN: {len(audio)}")
         return audio.astype(np.float32) / 32768.0
 
     def _resample_to_16k(self, audio_np: np.ndarray) -> np.ndarray:
