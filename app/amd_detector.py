@@ -286,11 +286,17 @@ class AMDSession:
         # PASO 2: Convertir y resamplear
         audio_f32 = self._bytes_to_float32(audio_bytes)
 
-        logger.debug(
-            f"[{self.call_id}] AUDIO INPUT CHECK: "
-            f"min={audio_f32.min():.4f}, max={audio_f32.max():.4f}, "
-            f"rms={np.sqrt(np.mean(audio_f32**2)):.4f}"
+        # ✅ LOG CRÍTICO: Ver valores DESPUÉS de _bytes_to_float32
+        logger.info(
+            f"[{self.call_id}] DESPUÉS DE _bytes_to_float32: "
+            f"min={audio_f32.min():.6f}, max={audio_f32.max():.6f}, "
+            f"rms={np.sqrt(np.mean(audio_f32**2)):.6f}"
         )
+
+        if np.max(np.abs(audio_f32)) < 0.01:
+            logger.warning(
+                f"[{self.call_id}] AUDIO CASI SILENCIO O MAL DECODIFICADO"
+            )
 
         if np.max(np.abs(audio_f32)) < 0.01:
             logger.warning(
@@ -299,11 +305,21 @@ class AMDSession:
 
         audio_16k = self._resample_to_16k(audio_f32)
 
+        # ✅ LOG CRÍTICO: Ver valores DESPUÉS del resampleo
+        logger.info(
+            f"[{self.call_id}] DESPUÉS DE RESAMPLEO: "
+            f"len={len(audio_16k)}, min={audio_16k.min():.6f}, "
+            f"max={audio_16k.max():.6f}, rms={np.sqrt(np.mean(audio_16k**2)):.6f}"
+        )
+
         # ✅ FIX #5: Normalizar TODO el chunk ANTES del VAD (no dentro del loop)
         peak = np.max(np.abs(audio_16k))
         if peak > 0:
             audio_16k = audio_16k / peak
-            logger.debug(f"[{self.call_id}] Audio normalizado, peak={peak:.4f}")
+            logger.info(
+                f"[{self.call_id}] DESPUÉS DE NORMALIZAR POR PEAK: "
+                f"peak={peak:.6f}, nuevo_rms={np.sqrt(np.mean(audio_16k**2)):.6f}"
+            )
 
         logger.debug(
             f"[{self.call_id}] Después de resampleo y normalización: {len(audio_16k)} samples a 16kHz"
