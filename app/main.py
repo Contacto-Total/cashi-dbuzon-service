@@ -110,12 +110,16 @@ def _parse_wav_header(audio_data: bytes) -> dict | None:
 
 
 def _stereo_to_mono(audio_data: bytes) -> bytes:
-    """Extrae canal izquierdo (cliente) de audio estereo 16-bit PCM."""
-    mono = bytearray()
-    for i in range(0, len(audio_data) - 3, 4):
-        mono.append(audio_data[i])
-        mono.append(audio_data[i + 1])
-    return bytes(mono)
+    audio_np = np.frombuffer(audio_data, dtype=np.int16)
+
+    if len(audio_np) % 2 != 0:
+        audio_np = audio_np[:-1]
+
+    stereo = audio_np.reshape(-1, 2)
+
+    mono = stereo[:, 0]  # canal cliente
+
+    return mono.astype(np.int16).tobytes()
 
 
 def _prepare_audio(audio_data: bytes, sample_rate: int) -> tuple[bytes, int]:
@@ -125,6 +129,8 @@ def _prepare_audio(audio_data: bytes, sample_rate: int) -> tuple[bytes, int]:
     - Convierte estereo a mono si es necesario
     Retorna (pcm_bytes, sample_rate_efectivo)
     """
+    original_len = len(audio_data)
+
     wav_info = _parse_wav_header(audio_data)
     if wav_info:
         logger.debug(
@@ -133,8 +139,32 @@ def _prepare_audio(audio_data: bytes, sample_rate: int) -> tuple[bytes, int]:
         )
         audio_data = audio_data[wav_info["data_offset"]:]
         sample_rate = wav_info["sample_rate"]
+        
+        # Validar bits per sample
+        if wav_info["bits_per_sample"] != 16:
+            logger.warning(
+                f"Audio no es 16-bit PCM (es {wav_info['bits_per_sample']}-bit), "
+                "puede haber problemas de decodificación"
+            )
+        
         if wav_info["channels"] == 2:
+            logger.debug("Convirtiendo estéreo → mono")
             audio_data = _stereo_to_mono(audio_data)
+
+    # Validar longitud mínima
+    min_samples = sample_rate // 2  # 0.5 segundos
+    min_bytes = min_samples * 2  # 16-bit = 2 bytes/sample
+    
+    if len(audio_data) < min_bytes:
+        logger.warning(
+            f"Audio muy corto: {len(audio_data)} bytes "
+            f"({len(audio_data)/2/sample_rate:.2f}s), mínimo {min_bytes} bytes"
+        )
+    
+    logger.debug(
+        f"Audio preparado: {original_len} → {len(audio_data)} bytes, "
+        f"{sample_rate}Hz, {len(audio_data)/2/sample_rate:.2f}s"
+    )
     return audio_data, sample_rate
 
 

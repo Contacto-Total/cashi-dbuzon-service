@@ -221,8 +221,20 @@ class AMDSession:
         """Resamplea audio a 16kHz si es necesario."""
         if not self._needs_resample:
             return audio_np
-        target_len = int(len(audio_np) * self._resample_ratio)
-        return scipy.signal.resample(audio_np, target_len).astype(np.float32)
+        
+        # Usar resample_poly que es más eficiente y robusto
+        # Calcular factores de up/down sampling
+        gcd = np.gcd(self.input_sample_rate, VAD_SAMPLE_RATE)
+        up = VAD_SAMPLE_RATE // gcd
+        down = self.input_sample_rate // gcd
+        
+        logger.debug(
+            f"[{self.call_id}] Resampleo {self.input_sample_rate}Hz → {VAD_SAMPLE_RATE}Hz "
+            f"(up={up}, down={down})"
+        )
+        
+        resampled = scipy.signal.resample_poly(audio_np, up, down).astype(np.float32)
+        return resampled
 
     def process_audio(self, audio_bytes: bytes) -> dict | None:
         """
@@ -239,6 +251,12 @@ class AMDSession:
         """
         if self._decision_made:
             return self._final_result
+        
+        # DIAGNÓSTICO: Log del chunk recibido
+        logger.info(
+            f"[{self.call_id}] Chunk recibido: {len(audio_bytes)} bytes, "
+            f"sample_rate={self.input_sample_rate}Hz"
+        )
 
         # PASO 1: Deteccion de beep
         beep = self.detector.detect_beep(audio_bytes, self.input_sample_rate)
@@ -252,7 +270,21 @@ class AMDSession:
 
         # PASO 2: Convertir y resamplear
         audio_f32 = self._bytes_to_float32(audio_bytes)
+
+        # DIAGNÓSTICO: Validar rango del audio
+        audio_min, audio_max = audio_f32.min(), audio_f32.max()
+        audio_rms = np.sqrt(np.mean(audio_f32**2))
+        logger.info(
+            f"[{self.call_id}] Audio stats: min={audio_min:.3f}, max={audio_max:.3f}, "
+            f"RMS={audio_rms:.3f}, samples={len(audio_f32)}"
+        )
+
         audio_16k = self._resample_to_16k(audio_f32)
+
+        # DIAGNÓSTICO: Log después del resampleo
+        logger.info(
+            f"[{self.call_id}] Después de resampleo: {len(audio_16k)} samples a 16kHz"
+        )
 
         self._audio_buffer_16k = np.concatenate([self._audio_buffer_16k, audio_16k])
         self._total_seconds += len(audio_f32) / self.input_sample_rate
@@ -260,6 +292,7 @@ class AMDSession:
         # PASO 3: VAD en chunks de 512 samples
         voice_samples = 0
         offset = 0
+        vad_probs = []  # DIAGNÓSTICO: almacenar probabilidades
 
         while offset + VAD_CHUNK_SAMPLES <= len(audio_16k):
             chunk = audio_16k[offset: offset + VAD_CHUNK_SAMPLES]
@@ -269,6 +302,14 @@ class AMDSession:
             offset += VAD_CHUNK_SAMPLES
 
         self._voice_seconds += voice_samples / VAD_SAMPLE_RATE
+
+        # DIAGNÓSTICO: Log de probabilidades VAD
+        if vad_probs:
+            logger.info(
+                f"[{self.call_id}] VAD: {len(vad_probs)} chunks, "
+                f"prob_max={max(vad_probs):.3f}, prob_mean={np.mean(vad_probs):.3f}, "
+                f"threshold={VAD_THRESHOLD}, voice_detected={voice_samples/VAD_SAMPLE_RATE:.2f}s"
+            )
 
         logger.debug(
             f"[{self.call_id}] total={self._total_seconds:.2f}s "
