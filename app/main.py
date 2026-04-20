@@ -169,7 +169,10 @@ def _process_audio_sync(call_id: str, audio_data: bytes, sample_rate: int) -> di
     Procesamiento sincrono AMD. Se ejecuta en ThreadPoolExecutor.
     Crea una sesion temporal, procesa todo el audio en chunks y retorna decision.
     """
-    audio_data, sample_rate = _prepare_audio(audio_data, sample_rate)
+    if audio_data[:4] == b"RIFF":
+        audio_data, sample_rate = _prepare_audio(audio_data, sample_rate)
+    else:
+        audio_data = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32768.0
     logger.info(f"[{call_id}] Procesando {len(audio_data)} bytes a {sample_rate}Hz")
 
     session = AMDSession(amd_detector, call_id, sample_rate=sample_rate)
@@ -211,6 +214,7 @@ async def analyze_audio(request: AnalyzeRequest):
 
     try:
         audio_data = base64.b64decode(request.audio_base64)
+        logger.info(f"[{request.call_id}] FIRST 10 BYTES: {audio_data[:10]}")
         logger.info(f"[{request.call_id}] RAW AUDIO BYTES: {len(audio_data)}")
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(
