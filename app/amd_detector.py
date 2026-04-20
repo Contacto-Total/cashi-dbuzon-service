@@ -278,6 +278,12 @@ class AMDSession:
         # PASO 2: Convertir y resamplear
         audio_f32 = self._bytes_to_float32(audio_bytes)
 
+        logger.info(
+            f"[{self.call_id}] AUDIO INPUT CHECK: "
+            f"min={audio_f32.min():.4f}, max={audio_f32.max():.4f}, "
+            f"rms={np.sqrt(np.mean(audio_f32**2)):.4f}"
+        )
+
         if np.max(np.abs(audio_f32)) < 0.01:
             logger.warning(
                 f"[{self.call_id}] AUDIO CASI SILENCIO O MAL DECODIFICADO"
@@ -296,7 +302,7 @@ class AMDSession:
             f"RMS={audio_rms:.3f}, samples={len(audio_f32)}"
         )
 
-        audio_16k = audio_f32  # YA VIENE NORMALIZADO A 16k
+        audio_16k = self._resample_to_16k(audio_f32)
 
         # DIAGNÓSTICO: Log después del resampleo
         logger.info(
