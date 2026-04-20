@@ -5,8 +5,6 @@ Usa Silero VAD (ONNX, sin PyTorch) + Resemblyzer + SVM
 import logging
 import os
 import urllib.request
-import io
-import wave
 import numpy as np
 import scipy.signal
 import onnxruntime as ort
@@ -65,37 +63,37 @@ class SileroVAD:
         self._state = np.zeros((2, 1, 128), dtype=np.float32)
 
     def __call__(self, audio_chunk: np.ndarray, sample_rate: int = VAD_SAMPLE_RATE) -> float:
-        """
-        Procesa un chunk de audio y retorna probabilidad de voz.
-
-        Args:
-            audio_chunk: float32 array de VAD_CHUNK_SAMPLES (512) samples a 16kHz
-            sample_rate: debe ser 16000
-
-        Returns:
-            float: probabilidad de voz (0.0 - 1.0)
-        """
-        # Silero ONNX espera shape (1, chunk_size)
         x = audio_chunk.reshape(1, -1).astype(np.float32)
         sr = np.array(sample_rate, dtype=np.int64)
 
-        out = self.session.run(
-            None,
-            {
-                "input": x,
-                "sr": sr
-            }
-        )
-        return float(out[0][0])
+        # reset seguro si no existe estado válido
+        if self._state is None:
+            self._state = np.zeros((2, 1, 128), dtype=np.float32)
 
-    def clone_state(self):
-        """Retorna copia del estado actual (para sesiones paralelas)."""
-        return np.copy(self._h), np.copy(self._c)
+        try:
+            out, self._state = self.session.run(
+                None,
+                {
+                    "input": x,
+                    "state": self._state,
+                    "sr": sr
+                }
+            )
+            return float(out[0][0])
 
-    def set_state(self, h, c):
-        """Restaura estado (para sesiones paralelas)."""
-        self._h = h
-        self._c = c
+        except Exception as e:
+            # fallback seguro
+            logger.warning(f"VAD error, reseteando estado: {e}")
+            self._state = np.zeros((2, 1, 128), dtype=np.float32)
+            out, self._state = self.session.run(
+                None,
+                {
+                    "input": x,
+                    "state": self._state,
+                    "sr": sr
+                }
+            )
+            return float(out[0][0])
 
 
 class AMDDetector:
@@ -106,8 +104,6 @@ class AMDDetector:
 
     def __init__(self):
         logger.info("Cargando Silero VAD (ONNX, sin PyTorch)...")
-        # El modelo ONNX base es compartido (stateless en el grafo)
-        # El estado (h, c) se maneja por sesion en AMDSession
         self._vad_base = SileroVAD()
         logger.info("Silero VAD ONNX listo.")
 
@@ -115,10 +111,11 @@ class AMDDetector:
         self.classifier = VoiceClassifier()
         logger.info("VoiceClassifier listo.")
 
-    def make_vad_session(self) -> SileroVAD:
-        vad = SileroVAD()                       # ← objeto completo, __init__ corrió
-        vad.session = self._vad_base.session    # ← reemplaza session por la compartida
-        return vad                              # ← estado ya reseteado en __init__
+    def make_vad_session(self):
+        vad = SileroVAD()
+        vad.session = self._vad_base.session
+        vad._reset_state()
+        return vad
 
     def detect_beep(self, audio_bytes: bytes, sample_rate: int = AUDIO_INPUT_SAMPLE_RATE) -> dict:
         """
@@ -194,7 +191,7 @@ class AMDSession:
         self.call_id = call_id
         self.input_sample_rate = sample_rate
 
-        # VAD con estado propio para esta sesion (no interfiere con otras llamadas)
+        # VAD con estado propio para esta sesion
         self._vad = detector.make_vad_session()
 
         # Buffer de audio acumulado a 16kHz (para Resemblyzer)
@@ -215,6 +212,7 @@ class AMDSession:
         self._resample_ratio = VAD_SAMPLE_RATE / sample_rate
 
     def _bytes_to_float32(self, audio_bytes: bytes) -> np.ndarray:
+        """Convierte PCM 16-bit bytes a float32 normalizado [-1, 1]"""
         audio = np.frombuffer(audio_bytes, dtype=np.int16)
         return audio.astype(np.float32) / 32768.0
 
@@ -224,7 +222,6 @@ class AMDSession:
             return audio_np
         
         # Usar resample_poly que es más eficiente y robusto
-        # Calcular factores de up/down sampling
         gcd = np.gcd(self.input_sample_rate, VAD_SAMPLE_RATE)
         up = VAD_SAMPLE_RATE // gcd
         down = self.input_sample_rate // gcd
@@ -250,19 +247,25 @@ class AMDSession:
         6. Si total >= AMD_FALLBACK_SECONDS sin decision -> clasificar con lo que hay
         7. Si silencio total en fallback -> MACHINE directo
         """
+        # ✅ FIX #4: Validar que hay audio antes de procesar
+        if len(audio_bytes) == 0:
+            logger.warning(f"[{self.call_id}] Chunk vacío recibido")
+            return None
+
         if len(audio_bytes) % 2 != 0:
-            logger.warning(f"[{self.call_id}] audio corrupto (bytes impar)")
+            logger.warning(f"[{self.call_id}] Audio corrupto (bytes impar)")
+            return None
 
         if self._decision_made:
             return self._final_result
         
         # DIAGNÓSTICO: Log del chunk recibido
-        logger.info(
+        logger.debug(
             f"[{self.call_id}] Chunk recibido: {len(audio_bytes)} bytes, "
             f"sample_rate={self.input_sample_rate}Hz"
         )
 
-        logger.info(f"[{self.call_id}] FIRST 10 BYTES: {audio_bytes[:10]}")
+        logger.debug(f"[{self.call_id}] FIRST 10 BYTES: {audio_bytes[:10]}")
 
         # PASO 1: Deteccion de beep
         beep = self.detector.detect_beep(audio_bytes, self.input_sample_rate)
@@ -274,11 +277,10 @@ class AMDSession:
                 forced=False
             )
 
-
         # PASO 2: Convertir y resamplear
         audio_f32 = self._bytes_to_float32(audio_bytes)
 
-        logger.info(
+        logger.debug(
             f"[{self.call_id}] AUDIO INPUT CHECK: "
             f"min={audio_f32.min():.4f}, max={audio_f32.max():.4f}, "
             f"rms={np.sqrt(np.mean(audio_f32**2)):.4f}"
@@ -289,60 +291,44 @@ class AMDSession:
                 f"[{self.call_id}] AUDIO CASI SILENCIO O MAL DECODIFICADO"
             )
 
-        logger.info(
-            f"[{self.call_id}] AUDIO RANGE: min={audio_f32.min():.4f}, max={audio_f32.max():.4f}, "
-            f"mean={audio_f32.mean():.6f}"
-        )
-
-        # DIAGNÓSTICO: Validar rango del audio
-        audio_min, audio_max = audio_f32.min(), audio_f32.max()
-        audio_rms = np.sqrt(np.mean(audio_f32**2))
-        logger.info(
-            f"[{self.call_id}] Audio stats: min={audio_min:.3f}, max={audio_max:.3f}, "
-            f"RMS={audio_rms:.3f}, samples={len(audio_f32)}"
-        )
-
         audio_16k = self._resample_to_16k(audio_f32)
-        # audio_16k = scipy.signal.lfilter([1], [1, -0.97], audio_16k)
 
-        logger.info(
-            f"[{self.call_id}] AFTER RESAMPLE RAW: "
-            f"min={audio_16k.min():.6f}, max={audio_16k.max():.6f}, "
-            f"rms={np.sqrt(np.mean(audio_16k**2)):.6f}"
+        # ✅ FIX #5: Normalizar TODO el chunk ANTES del VAD (no dentro del loop)
+        peak = np.max(np.abs(audio_16k))
+        if peak > 0:
+            audio_16k = audio_16k / peak
+            logger.debug(f"[{self.call_id}] Audio normalizado, peak={peak:.4f}")
+
+        logger.debug(
+            f"[{self.call_id}] Después de resampleo y normalización: {len(audio_16k)} samples a 16kHz"
         )
 
-        # DIAGNÓSTICO: Log después del resampleo
-        logger.info(
-            f"[{self.call_id}] Después de resampleo: {len(audio_16k)} samples a 16kHz"
-        )
-
+        # ✅ FIX #3: ACUMULAR AUDIO EN EL BUFFER (esto estaba faltando!)
         self._audio_buffer_16k = np.concatenate([self._audio_buffer_16k, audio_16k])
-        self._total_seconds += len(audio_f32) / self.input_sample_rate
+
+        # Limitar buffer a 10 segundos para evitar memory leak
+        MAX_BUFFER = VAD_SAMPLE_RATE * 10
+        if len(self._audio_buffer_16k) > MAX_BUFFER:
+            self._audio_buffer_16k = self._audio_buffer_16k[-MAX_BUFFER:]
+
+        # ✅ FIX #4: Solo sumar tiempo si el audio es válido
+        if len(audio_f32) > 0:
+            self._total_seconds += len(audio_f32) / self.input_sample_rate
 
         # PASO 3: VAD en chunks de 512 samples
         voice_samples = 0
         offset = 0
-        vad_probs = []  # DIAGNÓSTICO: almacenar probabilidades
 
-        logger.info(f"GLOBAL RMS 16k: {np.sqrt(np.mean(audio_16k**2)):.5f}")
-        logger.info(f"PEAK 16k: {np.max(np.abs(audio_16k)):.5f}")
-
+        # ✅ FIX #1 y #2: ELIMINAR chunk duplicado fuera del while
         while offset + VAD_CHUNK_SAMPLES <= len(audio_16k):
-            chunk = chunk.astype(np.float32)
-
-            # CLAMP suave (no hard normalize)
-            peak = np.max(np.abs(chunk))
-            if peak > 0:
-                chunk = chunk / max(peak, 1.0)
-
             chunk = audio_16k[offset: offset + VAD_CHUNK_SAMPLES]
+            
+            # ✅ FIX #5: Ya NO normalizamos aquí (ya lo hicimos arriba)
             prob = self._vad(chunk, VAD_SAMPLE_RATE)
 
-            logger.info(
-                f"[{self.call_id}] VAD prob={prob:.6f} | chunk_max={np.max(np.abs(chunk)):.4f}"
+            logger.debug(
+                f"[{self.call_id}] VAD prob={prob:.4f} (threshold={VAD_THRESHOLD})"
             )
-
-            vad_probs.append(prob)  # 🔥 FALTABA ESTO
 
             if prob >= VAD_THRESHOLD:
                 voice_samples += VAD_CHUNK_SAMPLES
@@ -351,15 +337,10 @@ class AMDSession:
 
         self._voice_seconds += voice_samples / VAD_SAMPLE_RATE
 
-        # DIAGNÓSTICO: Log de probabilidades VAD
-        logger.info(
-            f"[{self.call_id}] voice_samples={voice_samples}, "
-            f"voice_seconds={voice_samples / VAD_SAMPLE_RATE:.2f}"
-        )
-
         logger.debug(
-            f"[{self.call_id}] total={self._total_seconds:.2f}s "
-            f"voz={self._voice_seconds:.2f}s"
+            f"[{self.call_id}] voice_samples={voice_samples}, "
+            f"voice_seconds={self._voice_seconds:.2f}, "
+            f"total_seconds={self._total_seconds:.2f}"
         )
 
         # PASO 4: Clasificar si hay suficiente voz
