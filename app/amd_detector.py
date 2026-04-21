@@ -375,7 +375,11 @@ class AMDSession:
             logger.info(
                 f"[{self.call_id}] Fallback ({self._total_seconds:.2f}s) -> clasificando"
             )
-            if self._voice_seconds < 0.3:
+            # Solo forzamos MACHINE si NO hay voz detectable (silencio total).
+            # Antes estaba en 0.3s pero con telefonia narrow-band Silero marca
+            # poca voz sostenida aunque haya voz real. Dejamos pasar al
+            # clasificador SVM (Resemblyzer) que es mas preciso.
+            if self._voice_seconds < 0.05:
                 return self._make_decision(
                     result="MACHINE",
                     confidence=0.75,
@@ -396,7 +400,7 @@ class AMDSession:
             f"total={self._total_seconds:.2f}s, voz={self._voice_seconds:.2f}s"
         )
 
-        if self._voice_seconds < 0.3 or len(self._audio_buffer_16k) < VAD_SAMPLE_RATE * 0.5:
+        if self._voice_seconds < 0.05 or len(self._audio_buffer_16k) < VAD_SAMPLE_RATE * 0.5:
             return self._make_decision(
                 result="MACHINE",
                 confidence=0.70,

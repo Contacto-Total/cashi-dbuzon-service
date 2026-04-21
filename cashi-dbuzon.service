@@ -28,7 +28,7 @@ Environment=AMD_TIMEOUT=3.0
 Environment=AMD_MIN_VOICE_SECONDS=1.0
 Environment=AMD_FALLBACK_SECONDS=3.0
 Environment=AMD_CONFIDENCE_THRESHOLD=0.70
-Environment=VAD_THRESHOLD=0.3
+Environment=VAD_THRESHOLD=0.2
 
 # Sample rate entrante desde FreeSwitch (8kHz es correcto)
 # El codigo resamplea internamente a 16kHz para Silero VAD
