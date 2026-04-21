@@ -9,14 +9,9 @@ pydantic==2.8.2
 numpy==1.26.4
 scipy==1.13.1
 soundfile==0.12.1
-librosa==0.10.2
 
-# VAD - Silero ONNX (sin PyTorch, ~50MB vs ~3GB)
+# VAD - Silero ONNX
 onnxruntime==1.18.1
 
-# Voice embedding
-resemblyzer==0.1.1.dev0
-
-# Classifier
-scikit-learn==1.5.1
-joblib==1.4.2
+# Classifier - Whisper via faster-whisper (CTranslate2, 4x mas rapido que openai-whisper)
+faster-whisper==1.0.3

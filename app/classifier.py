@@ -1,126 +1,167 @@
 """
-Classifier - SVM sobre embeddings de Resemblyzer
-Carga el modelo entrenado y expone predict()
+Classifier - Whisper + keyword matching
+Transcribe el audio acumulado y decide HUMAN/MACHINE por contenido.
+Reemplaza al SVM Resemblyzer que no generalizaba con poca data.
 """
 import logging
 import numpy as np
-import joblib
-import os
-from resemblyzer import VoiceEncoder, preprocess_wav
-from pathlib import Path
+import scipy.signal
 
-from app.config import SVM_MODEL_PATH, VAD_SAMPLE_RATE
+from app.config import VAD_SAMPLE_RATE
 
 logger = logging.getLogger(__name__)
+
+# Palabras clave que indican un saludo de buzon de voz en espanol (LATAM / Peru).
+# Se busca cualquier substring dentro del texto transcrito (case-insensitive).
+MACHINE_KEYWORDS = [
+    "buzon", "buzón",
+    "mensaje",
+    "tono",
+    "deje",
+    "despues del", "después del",
+    "no se encuentra",
+    "no esta disponible", "no está disponible",
+    "no disponible",
+    "numero marcado", "número marcado",
+    "transferido",
+    "desvio", "desvío",
+    "contestador",
+    "apagado",
+    "fuera de",
+    "cobertura",
+    "no atiende",
+    "ahora no puede",
+    "grabar",
+    "grabe",
+    "señal",
+]
+
+# Palabras tipicas de humano contestando el telefono.
+HUMAN_KEYWORDS = [
+    "alo", "aló",
+    "hola",
+    "diga",
+    "bueno",
+    "quien habla", "quién habla",
+    "con quien", "con quién",
+    "si diga", "sí diga",
+]
 
 
 class VoiceClassifier:
     """
-    Clasificador de voz: HUMAN vs MACHINE
-    Usa Resemblyzer para generar embeddings de 256 dimensiones
-    y un SVM entrenado para clasificar.
+    Clasificador HUMAN vs MACHINE basado en transcripcion con Whisper
+    y matching de keywords tipicos de buzones y humanos.
     """
 
     def __init__(self):
-        logger.info("Cargando VoiceEncoder (Resemblyzer)...")
-        self.encoder = VoiceEncoder(device="cpu")
-        logger.info("VoiceEncoder cargado.")
-
-        self.svm = None
-        self._load_svm()
-
-    def _load_svm(self):
-        """Carga el modelo SVM desde disco si existe"""
-        if os.path.exists(SVM_MODEL_PATH):
-            logger.info(f"Cargando modelo SVM desde: {SVM_MODEL_PATH}")
-            self.svm = joblib.load(SVM_MODEL_PATH)
-            logger.info("Modelo SVM cargado exitosamente.")
-        else:
-            logger.warning(
-                f"Modelo SVM no encontrado en: {SVM_MODEL_PATH}. "
-                "Ejecuta training/train.py para entrenar el modelo."
+        logger.info("Cargando Whisper-tiny (faster-whisper)...")
+        try:
+            from faster_whisper import WhisperModel
+            # int8 para correr rapido en CPU, ~40MB modelo + ~100MB runtime
+            self.model = WhisperModel(
+                "tiny",
+                device="cpu",
+                compute_type="int8",
             )
+            logger.info("Whisper-tiny cargado.")
+        except Exception as e:
+            logger.error(f"Error cargando Whisper: {e}")
+            self.model = None
 
     def is_ready(self) -> bool:
-        """True si el SVM esta cargado y listo para clasificar"""
-        return self.svm is not None
+        return self.model is not None
 
-    def get_embedding(self, audio_np: np.ndarray, sample_rate: int = VAD_SAMPLE_RATE) -> np.ndarray:
-        """
-        Genera embedding de 256 dimensiones a partir de audio numpy.
-
-        Args:
-            audio_np: Audio como array float32 normalizado [-1, 1]
-            sample_rate: Sample rate del audio (Resemblyzer espera 16000Hz)
-
-        Returns:
-            np.ndarray de shape (256,)
-        """
-        try:
-            # Resemblyzer espera float32 a 16kHz
-            wav = preprocess_wav(audio_np, source_sr=sample_rate)
-            embedding = self.encoder.embed_utterance(wav)
-            return embedding
-        except Exception as e:
-            logger.error(f"Error generando embedding: {e}")
-            return None
+    def _resample_to_16k(self, audio_np: np.ndarray, source_sr: int) -> np.ndarray:
+        """Whisper espera float32 a 16kHz mono."""
+        if source_sr == 16000:
+            return audio_np.astype(np.float32)
+        gcd = np.gcd(source_sr, 16000)
+        up = 16000 // gcd
+        down = source_sr // gcd
+        return scipy.signal.resample_poly(audio_np, up, down).astype(np.float32)
 
     def predict(self, audio_np: np.ndarray, sample_rate: int = VAD_SAMPLE_RATE) -> dict:
         """
-        Clasifica audio como HUMAN o MACHINE.
-
-        Args:
-            audio_np: Audio como array float32 normalizado [-1, 1]
-            sample_rate: Sample rate del audio
+        Transcribe el audio y decide HUMAN/MACHINE por keywords.
 
         Returns:
-            dict con result, confidence, reason
+            dict con: result, confidence, reason, transcription
         """
         if not self.is_ready():
-            logger.error("SVM no cargado, no se puede clasificar.")
             return {
                 "result": "UNKNOWN",
                 "confidence": 0.0,
-                "reason": "Modelo SVM no entrenado"
+                "reason": "Whisper no cargado",
             }
 
-        embedding = self.get_embedding(audio_np, sample_rate)
-
-        if embedding is None:
+        # Minimo 0.3s de audio para que Whisper tenga contexto util
+        if len(audio_np) < sample_rate * 0.3:
             return {
                 "result": "UNKNOWN",
                 "confidence": 0.0,
-                "reason": "Error generando embedding de voz"
+                "reason": "Audio muy corto para transcribir",
             }
 
         try:
-            # Reshape para sklearn (1 sample, 256 features)
-            X = embedding.reshape(1, -1)
+            audio_16k = self._resample_to_16k(audio_np, sample_rate)
 
-            # Prediccion con probabilidades
-            proba = self.svm.predict_proba(X)[0]
-            classes = self.svm.classes_  # ["HUMAN", "MACHINE"] o ["MACHINE", "HUMAN"]
+            segments, _info = self.model.transcribe(
+                audio_16k,
+                language="es",
+                beam_size=1,
+                vad_filter=False,
+                condition_on_previous_text=False,
+            )
+            text = " ".join(s.text for s in segments).lower().strip()
 
-            # Encontrar la clase con mayor probabilidad
-            best_idx = int(np.argmax(proba))
-            result = classes[best_idx]
-            confidence = float(proba[best_idx])
+            logger.info(f"Whisper transcripcion: '{text[:150]}'")
 
-            # Probabilidad de cada clase para logging
-            proba_dict = {cls: float(p) for cls, p in zip(classes, proba)}
-            logger.info(f"Clasificacion SVM: {result} (conf={confidence:.2f}) | probs={proba_dict}")
+            if not text:
+                # Sin transcripcion: Whisper no oyo nada claro.
+                # Default MACHINE por seguridad (evita pasar buzones silenciosos como humanos).
+                return {
+                    "result": "MACHINE",
+                    "confidence": 0.65,
+                    "reason": "Sin transcripcion (audio no claro)",
+                    "transcription": "",
+                }
 
+            machine_hits = [kw for kw in MACHINE_KEYWORDS if kw in text]
+            human_hits = [kw for kw in HUMAN_KEYWORDS if kw in text]
+
+            if machine_hits:
+                # Mas hits -> mas confianza, capped a 0.95
+                confidence = min(0.95, 0.80 + 0.03 * len(machine_hits))
+                return {
+                    "result": "MACHINE",
+                    "confidence": confidence,
+                    "reason": f"Keywords buzon detectadas: {machine_hits}",
+                    "transcription": text,
+                }
+
+            if human_hits:
+                return {
+                    "result": "HUMAN",
+                    "confidence": 0.85,
+                    "reason": f"Keywords humano detectadas: {human_hits}",
+                    "transcription": text,
+                }
+
+            # Voz transcrita pero sin keywords conocidas. Un humano puede decir
+            # algo fuera del diccionario ("ya te llamo", "espera", etc), en
+            # cambio un buzon casi siempre incluye alguna frase estandar.
             return {
-                "result": result,
-                "confidence": confidence,
-                "reason": f"Resemblyzer+SVM: {result} con {confidence:.0%} de confianza",
-                "probabilities": proba_dict
+                "result": "HUMAN",
+                "confidence": 0.60,
+                "reason": "Voz sin keywords especificas (probable humano)",
+                "transcription": text,
             }
 
         except Exception as e:
-            logger.error(f"Error en prediccion SVM: {e}")
+            logger.error(f"Error transcribiendo con Whisper: {e}")
             return {
                 "result": "UNKNOWN",
                 "confidence": 0.0,
-                "reason": f"Error en clasificacion: {str(e)}"
+                "reason": f"Error Whisper: {e}",
             }
