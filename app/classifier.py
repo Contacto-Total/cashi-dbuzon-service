@@ -13,17 +13,36 @@ logger = logging.getLogger(__name__)
 
 # Palabras clave que indican un saludo de buzon de voz en espanol (LATAM / Peru).
 # Se busca cualquier substring dentro del texto transcrito (case-insensitive).
+#
+# Operadores peruanos (Movistar, Claro, Entel, Bitel) usan frases tipicas:
+# - "tu llamada sera transferida a una casilla de voz"
+# - "deja tu mensaje en la casilla de voz"
+# - "despues de la señal / presione cualquier tecla"
+# Whisper-tiny a veces confunde "casilla" -> "cacilla" / "cassiye" / "cacilla":
+# agregamos variantes para absorber esos errores de ASR.
 MACHINE_KEYWORDS = [
-    "buzon", "buzón",
+    # Frases de transferencia a buzon
+    "casilla", "cacilla", "cassiye", "casiya", "cacilya",
+    "transferida", "transferido",
+    "llamada sera", "llamada será",
+    # Frases de deje mensaje
     "mensaje",
-    "tono",
+    "buzon", "buzón",
+    "deja tu", "déjate", "dejate",
     "deje",
+    "grabar", "grabe",
+    # Frases de tono/señal
+    "tono",
+    "señal", "senal",
+    "tecla",
+    "presione",
     "despues del", "después del",
+    "despues de", "después de",
+    # Frases de indisponibilidad
     "no se encuentra",
     "no esta disponible", "no está disponible",
     "no disponible",
     "numero marcado", "número marcado",
-    "transferido",
     "desvio", "desvío",
     "contestador",
     "apagado",
@@ -31,9 +50,6 @@ MACHINE_KEYWORDS = [
     "cobertura",
     "no atiende",
     "ahora no puede",
-    "grabar",
-    "grabe",
-    "señal",
 ]
 
 # Palabras tipicas de humano contestando el telefono.
