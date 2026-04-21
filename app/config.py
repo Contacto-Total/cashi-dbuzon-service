@@ -26,8 +26,10 @@ AMD_CONFIDENCE_THRESHOLD = float(os.getenv("AMD_CONFIDENCE_THRESHOLD", "0.70"))
 # SILERO VAD
 # ============================================================
 
-# Sample rate de trabajo interno (Silero VAD opera a 16000Hz)
-VAD_SAMPLE_RATE = 16000
+# Sample rate de trabajo interno para VAD.
+# Usamos 8000Hz porque el audio viene de telefonia (banda angosta, <4kHz).
+# Silero en 16kHz falla sobre audio upsampleado sin contenido real >4kHz.
+VAD_SAMPLE_RATE = 8000
 
 # Sample rate del audio entrante desde FreeSwitch (tipicamente 8000Hz)
 AUDIO_INPUT_SAMPLE_RATE = int(os.getenv("AUDIO_SAMPLE_RATE", "8000"))
@@ -36,9 +38,9 @@ AUDIO_INPUT_SAMPLE_RATE = int(os.getenv("AUDIO_SAMPLE_RATE", "8000"))
 # Mas alto = mas estricto, menos falsos positivos
 VAD_THRESHOLD = float(os.getenv("VAD_THRESHOLD", "0.35"))
 
-# Tamano del chunk de audio que procesa VAD (samples a 16kHz)
-# 512 samples = 32ms a 16kHz — optimo para Silero
-VAD_CHUNK_SAMPLES = 512
+# Tamano del chunk de audio que procesa VAD (samples).
+# Silero exige 256 samples a 8kHz o 512 a 16kHz.
+VAD_CHUNK_SAMPLES = 256
 
 # ============================================================
 # DETECCION DE BEEP / TONO
