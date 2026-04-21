@@ -4,6 +4,8 @@ Transcribe el audio acumulado y decide HUMAN/MACHINE por contenido.
 Reemplaza al SVM Resemblyzer que no generalizaba con poca data.
 """
 import logging
+import re
+
 import numpy as np
 import scipy.signal
 
@@ -21,22 +23,26 @@ logger = logging.getLogger(__name__)
 # Whisper-tiny a veces confunde "casilla" -> "cacilla" / "cassiye" / "cacilla":
 # agregamos variantes para absorber esos errores de ASR.
 MACHINE_KEYWORDS = [
+    # Frases exclusivas de buzones (muy fuerte signal)
+    "de voz",               # "buzon DE VOZ", "casilla DE VOZ" - humanos no dicen esto
+    "comunicado con",
+    "te has comunicado",
     # Frases de transferencia a buzon
-    "casilla", "cacilla", "cassiye", "casiya", "cacilya",
-    "transferida", "transferido",
-    "llamada sera", "llamada será",
-    # Frases de deje mensaje
+    "casilla", "cacilla", "cassiye", "casiya", "cacilya", "castilla", "cocilla",
+    "transferida", "transferido", "transcedida", "torncerida",
+    "llamada sera", "llamada será", "llamada fera", "llamada cera",
+    # Frases de deje mensaje (variantes Whisper incluidas)
     "mensaje",
-    "buzon", "buzón",
-    "deja tu", "déjate", "dejate",
+    "buzon", "buzón", "busón", "buson",
+    "deja tu", "déjate", "dejate", "dejalmente", "déjame",
     "deje",
     "grabar", "grabe",
     # Frases de tono/señal
     "tono",
     "señal", "senal",
-    "tecla", "decla", "decala", "decada", "década",
-    "presione", "precione", "preció", "precio",
-    "cualquier",  # "presione cualquier tecla" -> muy especifico de buzones
+    "tecla", "decla", "decala", "decada", "década", "décala", "décila", "trecle",
+    "presione", "precione", "preció", "precio", "prefió", "prefiero",
+    "cualquier",            # "presione cualquier tecla" - muy especifico
     "terminar",
     "despues del", "después del",
     "despues de", "después de",
@@ -53,6 +59,9 @@ MACHINE_KEYWORDS = [
     "no atiende",
     "ahora no puede",
 ]
+
+# Patron de secuencia de digitos (buzones suelen dictar el numero llamado)
+DIGIT_SEQUENCE = re.compile(r"\d{6,}")
 
 # Palabras tipicas de humano contestando el telefono.
 HUMAN_KEYWORDS = [
@@ -150,9 +159,11 @@ class VoiceClassifier:
 
             machine_hits = [kw for kw in MACHINE_KEYWORDS if kw in text]
             human_hits = [kw for kw in HUMAN_KEYWORDS if kw in text]
+            word_count = len(text.split())
+            has_number_dictation = bool(DIGIT_SEQUENCE.search(text))
 
+            # 1. Keywords explicitas de buzon -> MACHINE
             if machine_hits:
-                # Mas hits -> mas confianza, capped a 0.95
                 confidence = min(0.95, 0.80 + 0.03 * len(machine_hits))
                 return {
                     "result": "MACHINE",
@@ -161,21 +172,52 @@ class VoiceClassifier:
                     "transcription": text,
                 }
 
-            if human_hits:
+            # 2. Buzon dictando numero de telefono -> MACHINE
+            if has_number_dictation:
                 return {
-                    "result": "HUMAN",
+                    "result": "MACHINE",
                     "confidence": 0.85,
-                    "reason": f"Humano kw={human_hits} | texto=\"{text_preview}\"",
+                    "reason": f"Buzon dictando numero | texto=\"{text_preview}\"",
                     "transcription": text,
                 }
 
-            # Voz transcrita pero sin keywords conocidas. Un humano puede decir
-            # algo fuera del diccionario ("ya te llamo", "espera", etc), en
-            # cambio un buzon casi siempre incluye alguna frase estandar.
+            # 3. Keywords humanas: discriminar por longitud.
+            # Un humano dice "hola" y PUNTO (1-3 palabras). Un buzon dice
+            # "hola, deja tu mensaje en la casilla..." (7+ palabras). Si hay
+            # mas de 4 palabras aunque aparezca "hola", es un saludo de buzon
+            # que esquivo las keywords machine por typos de Whisper.
+            if human_hits:
+                if word_count <= 4:
+                    return {
+                        "result": "HUMAN",
+                        "confidence": 0.85,
+                        "reason": f"Humano breve kw={human_hits} ({word_count}pal) | texto=\"{text_preview}\"",
+                        "transcription": text,
+                    }
+                else:
+                    return {
+                        "result": "MACHINE",
+                        "confidence": 0.75,
+                        "reason": f"Saludo largo con kw humana ({word_count}pal, probable buzon) | texto=\"{text_preview}\"",
+                        "transcription": text,
+                    }
+
+            # 4. Sin keywords + texto breve -> HUMAN
+            # (un humano que dijo algo fuera del diccionario: "sí", "¿qué?", etc)
+            if word_count <= 3:
+                return {
+                    "result": "HUMAN",
+                    "confidence": 0.65,
+                    "reason": f"Voz breve sin keywords ({word_count}pal) | texto=\"{text_preview}\"",
+                    "transcription": text,
+                }
+
+            # 5. Sin keywords + texto largo -> MACHINE
+            # (buzon con typos severos de Whisper que esquivaron todas las keywords)
             return {
-                "result": "HUMAN",
-                "confidence": 0.60,
-                "reason": f"Sin keywords | texto=\"{text_preview}\"",
+                "result": "MACHINE",
+                "confidence": 0.70,
+                "reason": f"Texto largo sin keywords ({word_count}pal, probable buzon) | texto=\"{text_preview}\"",
                 "transcription": text,
             }
 
