@@ -34,8 +34,10 @@ MACHINE_KEYWORDS = [
     # Frases de tono/señal
     "tono",
     "señal", "senal",
-    "tecla",
-    "presione",
+    "tecla", "decla", "decala", "decada", "década",
+    "presione", "precione", "preció", "precio",
+    "cualquier",  # "presione cualquier tecla" -> muy especifico de buzones
+    "terminar",
     "despues del", "después del",
     "despues de", "después de",
     # Frases de indisponibilidad
@@ -133,6 +135,9 @@ class VoiceClassifier:
 
             logger.info(f"Whisper transcripcion: '{text[:150]}'")
 
+            # Truncar texto al log para evitar reasons gigantes
+            text_preview = text[:120].replace('"', "'")
+
             if not text:
                 # Sin transcripcion: Whisper no oyo nada claro.
                 # Default MACHINE por seguridad (evita pasar buzones silenciosos como humanos).
@@ -152,7 +157,7 @@ class VoiceClassifier:
                 return {
                     "result": "MACHINE",
                     "confidence": confidence,
-                    "reason": f"Keywords buzon detectadas: {machine_hits}",
+                    "reason": f"Buzon kw={machine_hits} | texto=\"{text_preview}\"",
                     "transcription": text,
                 }
 
@@ -160,7 +165,7 @@ class VoiceClassifier:
                 return {
                     "result": "HUMAN",
                     "confidence": 0.85,
-                    "reason": f"Keywords humano detectadas: {human_hits}",
+                    "reason": f"Humano kw={human_hits} | texto=\"{text_preview}\"",
                     "transcription": text,
                 }
 
@@ -170,7 +175,7 @@ class VoiceClassifier:
             return {
                 "result": "HUMAN",
                 "confidence": 0.60,
-                "reason": "Voz sin keywords especificas (probable humano)",
+                "reason": f"Sin keywords | texto=\"{text_preview}\"",
                 "transcription": text,
             }
 
