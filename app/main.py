@@ -145,16 +145,33 @@ def _prepare_audio(audio_data: bytes, sample_rate: int) -> tuple[np.ndarray, int
 
     # Resamplear a 16kHz SIEMPRE si es necesario
     if sample_rate != 16000:
-        gcd = np.gcd(sample_rate, 16000)
-        up = 16000 // gcd
-        down = sample_rate // gcd
-        audio_np = scipy.signal.resample_poly(audio_np, up, down).astype(np.float32)
-        sample_rate = 16000
+          gcd = np.gcd(sample_rate, 16000)
+          up = 16000 // gcd
+          down = sample_rate // gcd
+          audio_np = scipy.signal.resample_poly(audio_np, up, down).astype(np.float32)
+          sample_rate = 16000
+
+    # Normalizacion GLOBAL UNA sola vez (peak -> 0.9) para que Silero VAD
+    # reciba amplitud consistente. El audio telefonico viene bajo (RMS ~0.05)
+    # y Silero rinde mejor con peaks cercanos a 1.0. Solo normalizamos si hay
+    # contenido audible para no amplificar silencio puro.
+    peak_global = float(np.max(np.abs(audio_np)))
+    if peak_global > 0.01:
+          gain = 0.9 / peak_global
+          audio_np = (audio_np * gain).astype(np.float32)
+          logger.info(
+              f"[PREP AUDIO] Normalizacion global: peak_antes={peak_global:.4f}, "
+              f"gain={gain:.2f}x, peak_despues={float(np.max(np.abs(audio_np))):.4f}"
+          )
+    else:
+          logger.warning(
+              f"[PREP AUDIO] Audio casi silencio (peak={peak_global:.6f}), no se normaliza"
+          )
 
     logger.info(
-        f"[PREP AUDIO] sr={sample_rate}, samples={len(audio_np)}, "
-        f"min={audio_np.min():.4f}, max={audio_np.max():.4f}, "
-        f"rms={np.sqrt(np.mean(audio_np**2)):.4f}"
+          f"[PREP AUDIO] sr={sample_rate}, samples={len(audio_np)}, "
+          f"min={audio_np.min():.4f}, max={audio_np.max():.4f}, "
+          f"rms={np.sqrt(np.mean(audio_np**2)):.4f}"
     )
 
     # ✅ RETORNAR FLOAT32 DIRECTO (no convertir a int16)

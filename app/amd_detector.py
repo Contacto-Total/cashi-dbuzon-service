@@ -312,17 +312,11 @@ class AMDSession:
             f"max={audio_16k.max():.6f}, rms={np.sqrt(np.mean(audio_16k**2)):.6f}"
         )
 
-        # ✅ FIX #5: Normalizar TODO el chunk ANTES del VAD (no dentro del loop)
-        peak = np.max(np.abs(audio_16k))
-        if peak > 0:
-            audio_16k = audio_16k / peak
-            logger.info(
-                f"[{self.call_id}] DESPUÉS DE NORMALIZAR POR PEAK: "
-                f"peak={peak:.6f}, nuevo_rms={np.sqrt(np.mean(audio_16k**2)):.6f}"
-            )
-
+        # Silero VAD trabaja con la amplitud natural del audio.
+        # La normalizacion global se hace UNA sola vez en _prepare_audio (main.py).
+        # Normalizar por chunk rompe el estado interno del LSTM de Silero.
         logger.debug(
-            f"[{self.call_id}] Después de resampleo y normalización: {len(audio_16k)} samples a 16kHz"
+              f"[{self.call_id}] Chunk listo para VAD: {len(audio_16k)} samples a 16kHz"
         )
 
         # ✅ FIX #3: ACUMULAR AUDIO EN EL BUFFER (esto estaba faltando!)

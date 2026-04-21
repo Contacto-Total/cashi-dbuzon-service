@@ -34,7 +34,7 @@ AUDIO_INPUT_SAMPLE_RATE = int(os.getenv("AUDIO_SAMPLE_RATE", "8000"))
 
 # Umbral de probabilidad de voz para Silero VAD (0.0 - 1.0)
 # Mas alto = mas estricto, menos falsos positivos
-VAD_THRESHOLD = float(os.getenv("VAD_THRESHOLD", "0.5"))
+VAD_THRESHOLD = float(os.getenv("VAD_THRESHOLD", "0.35"))
 
 # Tamano del chunk de audio que procesa VAD (samples a 16kHz)
 # 512 samples = 32ms a 16kHz — optimo para Silero
