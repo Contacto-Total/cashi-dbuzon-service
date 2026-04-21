@@ -201,9 +201,11 @@ def _process_audio_sync(call_id: str, audio_data: bytes, sample_rate: int) -> di
 
     for i in range(0, len(audio_f32), chunk_size):
         chunk_f32 = audio_f32[i: i + chunk_size]
-        
-        # ✅ Convertir a bytes solo al pasar a process_audio
-        chunk_bytes = (chunk_f32 * 32767).astype(np.int16).tobytes()
+
+        # Clip antes de int16 para evitar wraparound si el resample_poly genero
+        # overshoot (>1.0). Sin clip, 1.09*32767=35716 desborda a negativo y
+        # destruye el audio con distorsion.
+        chunk_bytes = np.clip(chunk_f32 * 32767, -32768, 32767).astype(np.int16).tobytes()
         
         result = session.process_audio(chunk_bytes)
         if result:
