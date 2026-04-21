@@ -334,22 +334,26 @@ class AMDSession:
         # PASO 3: VAD en chunks de 512 samples
         voice_samples = 0
         offset = 0
+        vad_probs = []
 
-        # ✅ FIX #1 y #2: ELIMINAR chunk duplicado fuera del while
         while offset + VAD_CHUNK_SAMPLES <= len(audio_16k):
             chunk = audio_16k[offset: offset + VAD_CHUNK_SAMPLES]
-            
-            # ✅ FIX #5: Ya NO normalizamos aquí (ya lo hicimos arriba)
             prob = self._vad(chunk, VAD_SAMPLE_RATE)
-
-            logger.debug(
-                f"[{self.call_id}] VAD prob={prob:.4f} (threshold={VAD_THRESHOLD})"
-            )
+            vad_probs.append(prob)
 
             if prob >= VAD_THRESHOLD:
                 voice_samples += VAD_CHUNK_SAMPLES
 
             offset += VAD_CHUNK_SAMPLES
+
+        if vad_probs:
+            logger.info(
+                f"[{self.call_id}] VAD probs (n={len(vad_probs)}): "
+                f"min={min(vad_probs):.3f}, max={max(vad_probs):.3f}, "
+                f"mean={sum(vad_probs)/len(vad_probs):.3f}, "
+                f"over_threshold={sum(1 for p in vad_probs if p >= VAD_THRESHOLD)}"
+                f" (threshold={VAD_THRESHOLD})"
+            )
 
         self._voice_seconds += voice_samples / VAD_SAMPLE_RATE
 
