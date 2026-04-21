@@ -411,25 +411,38 @@ class AMDSession:
         return self._classify_and_decide(forced=True)
 
     def _classify_and_decide(self, forced: bool) -> dict | None:
-        """Llama al clasificador Resemblyzer+SVM y decide."""
-        classification = self.detector.classify_audio(self._audio_buffer_16k)
+        """
+        Heuristica determinista basada en el patron de voz detectada por Silero.
 
-        result = classification.get("result", "UNKNOWN")
-        confidence = classification.get("confidence", 0.0)
-        reason = classification.get("reason", "")
+        Logica:
+          - voz sostenida (>50% del tiempo)  -> MACHINE (saludo de buzon sonando)
+          - voz breve (5-50% del tiempo)     -> HUMAN   ("alo?" y espera)
+          - silencio (<5% del tiempo)        -> MACHINE (no contestaron / tono)
 
-        # Si confianza baja y no estamos forzados, pedir mas audio
-        if not forced and confidence < AMD_CONFIDENCE_THRESHOLD and result != "UNKNOWN":
-            logger.info(
-                f"[{self.call_id}] Confianza baja ({confidence:.2f}), esperando mas audio"
-            )
-            return None
+        Reemplaza al SVM Resemblyzer que no generalizaba: training con 20 samples
+        aprendia caracteristicas del timbrado/silencio de los audios grabados, no
+        de la voz, y en produccion colapsaba al 100% MACHINE.
+        """
+        total = max(self._total_seconds, 0.1)
+        voice_ratio = self._voice_seconds / total
 
-        # UNKNOWN = SVM no entrenado u error -> MACHINE por seguridad
-        if result == "UNKNOWN":
+        if voice_ratio < 0.05:
             result = "MACHINE"
-            confidence = 0.60
-            reason = "No se pudo clasificar, asumiendo MACHINE por seguridad"
+            confidence = 0.70
+            reason = f"Sin voz audible (voz={self._voice_seconds:.2f}s / total={total:.2f}s)"
+        elif voice_ratio < 0.50:
+            result = "HUMAN"
+            confidence = 0.75
+            reason = f"Patron de voz humana breve (ratio={voice_ratio:.0%})"
+        else:
+            result = "MACHINE"
+            confidence = 0.80
+            reason = f"Voz sostenida (ratio={voice_ratio:.0%}, probable saludo de buzon)"
+
+        logger.info(
+            f"[{self.call_id}] Heuristica: voz={self._voice_seconds:.2f}s, "
+            f"total={total:.2f}s, ratio={voice_ratio:.2%} -> {result}"
+        )
 
         return self._make_decision(result=result, confidence=confidence, reason=reason, forced=forced)
 
