@@ -139,6 +139,17 @@ class VoiceClassifier:
                 beam_size=1,
                 vad_filter=False,
                 condition_on_previous_text=False,
+                # initial_prompt: le damos a Whisper el vocabulario tipico de
+                # buzones peruanos (Movistar, Claro, Entel, Bitel) para que
+                # no alucine palabras como "tornó", "sonos", "mesos mesos".
+                # No se incluye en la salida, solo sesga la transcripcion.
+                initial_prompt=(
+                    "Buzon de voz. Te has comunicado con el buzon de voz. "
+                    "Despues del tono, deje su mensaje y presione cualquier "
+                    "tecla para terminar. Su llamada sera transferida a la "
+                    "casilla de voz. El numero marcado no se encuentra "
+                    "disponible. Alo. Hola. Diga. Buenos dias."
+                ),
             )
             text = " ".join(s.text for s in segments).lower().strip()
 
