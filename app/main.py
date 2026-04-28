@@ -44,7 +44,7 @@ active_sessions: dict[str, AMDSession] = {}
 
 # ThreadPoolExecutor: 1 thread por nucleo disponible, min 4
 # Cada analisis AMD consume ~15-20MB de RAM y muy poco CPU
-amd_executor = ThreadPoolExecutor(max_workers=16, thread_name_prefix="amd_worker")
+amd_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="amd_worker")
 
 _analyses_in_progress = 0
 _analyses_lock = threading.Lock()
