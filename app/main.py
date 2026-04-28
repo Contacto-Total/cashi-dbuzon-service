@@ -8,7 +8,7 @@ import logging
 import threading
 import struct
 from concurrent.futures import ThreadPoolExecutor
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File, Form
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional
@@ -219,10 +219,16 @@ def _process_audio_sync(call_id: str, audio_data: bytes, sample_rate: int) -> di
 
 
 @app.post("/analyze")
-async def analyze_audio(request: AnalyzeRequest):
+async def analyze_audio(
+    call_id: str = Form(...),
+    sample_rate: int = Form(AUDIO_INPUT_SAMPLE_RATE),
+    audio: UploadFile = File(...),
+):
     """
-    Analiza audio completo via HTTP POST.
-    Compatible con el contrato de API anterior.
+    Analiza audio completo via HTTP POST (multipart binario, sin Base64).
+
+    Recibe el audio como archivo binario directo en el campo 'audio' del
+    multipart/form-data, evitando overhead de Base64 encode/decode.
     """
     global _analyses_in_progress
 
@@ -233,24 +239,24 @@ async def analyze_audio(request: AnalyzeRequest):
         _analyses_in_progress += 1
         current = _analyses_in_progress
 
-    logger.info(f"[{request.call_id}] Solicitud recibida ({current} en proceso)")
+    logger.info(f"[{call_id}] Solicitud recibida ({current} en proceso)")
 
     try:
-        audio_data = base64.b64decode(request.audio_base64)
+        audio_data = await audio.read()
         logger.info(f"RAW MAGIC BYTES: {audio_data[:4]}")
         logger.info(f"RAW AUDIO BYTES: {len(audio_data)}")
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(
             amd_executor,
             _process_audio_sync,
-            request.call_id,
+            call_id,
             audio_data,
-            request.sample_rate,
+            sample_rate,
         )
         return JSONResponse(content=result)
 
     except Exception as e:
-        logger.error(f"[{request.call_id}] Error: {e}")
+        logger.error(f"[{call_id}] Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
     finally:
