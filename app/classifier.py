@@ -63,15 +63,33 @@ MACHINE_KEYWORDS = [
 # Patron de secuencia de digitos (buzones suelen dictar el numero llamado)
 DIGIT_SEQUENCE = re.compile(r"\d{6,}")
 
-# Palabras tipicas de humano contestando el telefono.
-HUMAN_KEYWORDS = [
-    "alo", "aló",
+# Palabras DECISIVAS de humano: detectarlas dispara HUMAN inmediato.
+# Variantes con typos comunes de Whisper-tiny incluidas.
+HUMAN_DECISIVE = [
+    # alo y variantes
+    "alo", "aló", "aloo", "halo", "allo", "alou", "aroh", "aro",
+    # diga y variantes
+    "diga", "dígame", "digame", "diga me",
+    # bueno (Mexico) y variantes
+    "bueno", "buano", "weno",
+    # buenos dias y variantes
+    "buenos días", "buenos dias", "buenos dia", "weno dia", "buen dia",
+    # buenas tardes
+    "buenas tardes", "buena tarde",
+    # buenas noches
+    "buenas noches", "buena noche",
+    # buenas (saludo corto)
+    "buenas",
+    # si diga
+    "si diga", "sí diga", "sí dígame", "si digame",
+    # quien habla
+    "quien habla", "quién habla", "con quien", "con quién", "con quién hablo",
+]
+
+# Palabras AMBIGUAS de humano: no deciden solas porque algunos buzones
+# tambien las dicen ("Hola, te has comunicado con..."). Esperan mas audio.
+HUMAN_AMBIGUOUS = [
     "hola",
-    "diga",
-    "bueno",
-    "quien habla", "quién habla",
-    "con quien", "con quién",
-    "si diga", "sí diga",
 ]
 
 
@@ -169,7 +187,8 @@ class VoiceClassifier:
                 }
 
             machine_hits = [kw for kw in MACHINE_KEYWORDS if kw in text]
-            human_hits = [kw for kw in HUMAN_KEYWORDS if kw in text]
+            decisive_hits = [kw for kw in HUMAN_DECISIVE if kw in text]
+            ambiguous_hits = [kw for kw in HUMAN_AMBIGUOUS if kw in text]
             word_count = len(text.split())
             has_number_dictation = bool(DIGIT_SEQUENCE.search(text))
 
@@ -192,17 +211,17 @@ class VoiceClassifier:
                     "transcription": text,
                 }
 
-            # 3. Keywords humanas: discriminar por longitud.
-            # Un humano dice "hola" y PUNTO (1-3 palabras). Un buzon dice
-            # "hola, deja tu mensaje en la casilla..." (7+ palabras). Si hay
-            # mas de 4 palabras aunque aparezca "hola", es un saludo de buzon
-            # que esquivo las keywords machine por typos de Whisper.
-            if human_hits:
+            # 3. Keywords humanas DECISIVAS: discriminar por longitud.
+            # Un humano dice "alo"/"diga" y PUNTO (1-4 palabras). Un buzon dice
+            # frases largas. Si aparece keyword humana decisiva en texto corto,
+            # es humano de verdad; si aparece en texto largo, es buzon que
+            # esquivo las keywords machine por typos de Whisper.
+            if decisive_hits:
                 if word_count <= 4:
                     return {
                         "result": "HUMAN",
                         "confidence": 0.85,
-                        "reason": f"Humano breve kw={human_hits} ({word_count}pal) | texto=\"{text_preview}\"",
+                        "reason": f"Humano decisivo kw={decisive_hits} ({word_count}pal) | texto=\"{text_preview}\"",
                         "transcription": text,
                     }
                 else:
@@ -210,6 +229,26 @@ class VoiceClassifier:
                         "result": "MACHINE",
                         "confidence": 0.75,
                         "reason": f"Saludo largo con kw humana ({word_count}pal, probable buzon) | texto=\"{text_preview}\"",
+                        "transcription": text,
+                    }
+
+            # 4. Keywords humanas AMBIGUAS ("hola"): no decide en intento temprano.
+            # Devolvemos HUMAN con confianza baja para que _classify_and_decide
+            # haga return None (espera mas audio) si no es forced. En el forced
+            # final, sera aceptado como HUMAN si word_count <= 3.
+            if ambiguous_hits:
+                if word_count <= 3:
+                    return {
+                        "result": "HUMAN",
+                        "confidence": 0.55,  # Debajo de AMD_CONFIDENCE_THRESHOLD (0.70)
+                        "reason": f"Hola ambiguo ({word_count}pal) | texto=\"{text_preview}\"",
+                        "transcription": text,
+                    }
+                else:
+                    return {
+                        "result": "MACHINE",
+                        "confidence": 0.75,
+                        "reason": f"Hola en texto largo ({word_count}pal, probable buzon) | texto=\"{text_preview}\"",
                         "transcription": text,
                     }
 

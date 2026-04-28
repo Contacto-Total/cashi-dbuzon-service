@@ -209,8 +209,8 @@ class AMDSession:
         self._decision_made = False
         self._final_result = None
 
-        # Contador de reintentos de Whisper (limita re-transcripciones por sesion)
-        self._whisper_calls = 0
+        # Flag de intento temprano (garantiza UNA sola transcripcion temprana)
+        self._early_attempt_done = False
 
         # Resample ratio entrada -> 16kHz
         self._needs_resample = (sample_rate != VAD_SAMPLE_RATE)
@@ -366,12 +366,20 @@ class AMDSession:
             f"total_seconds={self._total_seconds:.2f}"
         )
 
-        # PASO 4: Clasificar si hay suficiente voz
-        if self._voice_seconds >= AMD_MIN_VOICE_SECONDS:
+        # PASO 4: INTENTO TEMPRANO (una sola vez por sesion)
+        # Cuando juntamos AMD_MIN_VOICE_SECONDS de voz, transcribimos UNA vez.
+        # Si encuentra keyword decisiva (MACHINE o HUMAN_DECISIVE) -> decide.
+        # Si confianza baja (ej. solo "hola" o sin keyword) -> sigue acumulando
+        # hasta el fallback final (PASO 5).
+        if not self._early_attempt_done and self._voice_seconds >= AMD_MIN_VOICE_SECONDS:
+            self._early_attempt_done = True
             logger.info(
-                f"[{self.call_id}] Voz suficiente ({self._voice_seconds:.2f}s) -> clasificando"
+                f"[{self.call_id}] Intento temprano ({self._voice_seconds:.2f}s voz) -> clasificando"
             )
-            return self._classify_and_decide(forced=False)
+            decision = self._classify_and_decide(forced=False)
+            if decision:
+                return decision
+            # Si decision es None (confianza baja sin keyword), seguimos acumulando
 
         # PASO 5: Fallback por tiempo total
         if self._total_seconds >= AMD_FALLBACK_SECONDS:
@@ -422,17 +430,14 @@ class AMDSession:
         reason = classification.get("reason", "")
         transcription = classification.get("transcription", "")
 
-        # Contar esta llamada a Whisper (para limitar reintentos)
-        self._whisper_calls += 1
-
-        # Confianza baja Y aun tenemos tiempo Y no hemos reintentado mucho -> esperar mas audio
-        if (not forced
-            and confidence < AMD_CONFIDENCE_THRESHOLD
-            and result != "UNKNOWN"
-            and self._whisper_calls < 2):
+        # Confianza baja y aun tenemos tiempo -> esperar mas audio
+        # (esto se cumple en el intento temprano cuando no hay keyword decisiva
+        # ni MACHINE clara. El flag _early_attempt_done en process_audio garantiza
+        # que NO se reintente en cada chunk: solo habra 2 calls totales como max:
+        # 1 temprana + 1 forzada en fallback.)
+        if not forced and confidence < AMD_CONFIDENCE_THRESHOLD and result != "UNKNOWN":
             logger.info(
-                f"[{self.call_id}] Confianza baja ({confidence:.2f}), "
-                f"reintento Whisper {self._whisper_calls}/2"
+                f"[{self.call_id}] Confianza baja ({confidence:.2f}), esperando fallback"
             )
             return None
 
