@@ -209,6 +209,9 @@ class AMDSession:
         self._decision_made = False
         self._final_result = None
 
+        # Contador de reintentos de Whisper (limita re-transcripciones por sesion)
+        self._whisper_calls = 0
+
         # Resample ratio entrada -> 16kHz
         self._needs_resample = (sample_rate != VAD_SAMPLE_RATE)
         self._resample_ratio = VAD_SAMPLE_RATE / sample_rate
@@ -419,10 +422,17 @@ class AMDSession:
         reason = classification.get("reason", "")
         transcription = classification.get("transcription", "")
 
-        # Confianza baja y aun tenemos tiempo -> esperar mas audio
-        if not forced and confidence < AMD_CONFIDENCE_THRESHOLD and result != "UNKNOWN":
+        # Contar esta llamada a Whisper (para limitar reintentos)
+        self._whisper_calls += 1
+
+        # Confianza baja Y aun tenemos tiempo Y no hemos reintentado mucho -> esperar mas audio
+        if (not forced
+            and confidence < AMD_CONFIDENCE_THRESHOLD
+            and result != "UNKNOWN"
+            and self._whisper_calls < 2):
             logger.info(
-                f"[{self.call_id}] Confianza baja ({confidence:.2f}), esperando mas audio"
+                f"[{self.call_id}] Confianza baja ({confidence:.2f}), "
+                f"reintento Whisper {self._whisper_calls}/2"
             )
             return None
 
