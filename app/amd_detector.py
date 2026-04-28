@@ -212,6 +212,10 @@ class AMDSession:
         # Flag de intento temprano (garantiza UNA sola transcripcion temprana)
         self._early_attempt_done = False
 
+        # Cache del resultado del intento temprano (para reusar en fallback
+        # y evitar una segunda llamada a Whisper)
+        self._early_classification = None
+
         # Resample ratio entrada -> 16kHz
         self._needs_resample = (sample_rate != VAD_SAMPLE_RATE)
         self._resample_ratio = VAD_SAMPLE_RATE / sample_rate
@@ -397,6 +401,34 @@ class AMDSession:
                     reason=f"Silencio prolongado ({self._total_seconds:.1f}s sin voz)",
                     forced=True
                 )
+
+            # Si ya hicimos un intento temprano y tenemos su resultado cacheado,
+            # lo usamos directamente (evita una segunda llamada a Whisper).
+            # Aceptamos cualquier confianza porque estamos en fallback forzado.
+            if self._early_classification is not None:
+                cached = self._early_classification
+                logger.info(
+                    f"[{self.call_id}] Reusando resultado del intento temprano "
+                    f"(confianza={cached.get('confidence', 0):.2f}) sin re-transcribir"
+                )
+                result = cached.get("result", "UNKNOWN")
+                confidence = cached.get("confidence", 0.0)
+                reason = cached.get("reason", "")
+                transcription = cached.get("transcription", "")
+                if result == "UNKNOWN":
+                    result = "MACHINE"
+                    confidence = 0.60
+                    reason = f"No se pudo clasificar (cache): {reason}"
+                decision = self._make_decision(
+                    result=result,
+                    confidence=confidence,
+                    reason=reason,
+                    forced=True,
+                )
+                if transcription:
+                    decision["transcription"] = transcription
+                return decision
+
             return self._classify_and_decide(forced=True)
 
         return None
@@ -419,6 +451,30 @@ class AMDSession:
                 forced=True
             )
 
+        # Reusar cache del intento temprano si existe (evita re-transcribir)
+        if self._early_classification is not None:
+            cached = self._early_classification
+            logger.info(
+                f"[{self.call_id}] force_decision: reusando intento temprano cacheado"
+            )
+            result = cached.get("result", "UNKNOWN")
+            confidence = cached.get("confidence", 0.0)
+            reason = cached.get("reason", "")
+            transcription = cached.get("transcription", "")
+            if result == "UNKNOWN":
+                result = "MACHINE"
+                confidence = 0.60
+                reason = f"No se pudo clasificar (cache): {reason}"
+            decision = self._make_decision(
+                result=result,
+                confidence=confidence,
+                reason=reason,
+                forced=True,
+            )
+            if transcription:
+                decision["transcription"] = transcription
+            return decision
+
         return self._classify_and_decide(forced=True)
 
     def _classify_and_decide(self, forced: bool) -> dict | None:
@@ -430,14 +486,14 @@ class AMDSession:
         reason = classification.get("reason", "")
         transcription = classification.get("transcription", "")
 
-        # Confianza baja y aun tenemos tiempo -> esperar mas audio
-        # (esto se cumple en el intento temprano cuando no hay keyword decisiva
-        # ni MACHINE clara. El flag _early_attempt_done en process_audio garantiza
-        # que NO se reintente en cada chunk: solo habra 2 calls totales como max:
-        # 1 temprana + 1 forzada en fallback.)
+        # Confianza baja y aun tenemos tiempo -> esperar mas audio.
+        # Cacheamos el resultado para que el fallback final lo reuse y NO
+        # vuelva a llamar a Whisper (evita doble transcripcion).
         if not forced and confidence < AMD_CONFIDENCE_THRESHOLD and result != "UNKNOWN":
+            self._early_classification = classification
             logger.info(
-                f"[{self.call_id}] Confianza baja ({confidence:.2f}), esperando fallback"
+                f"[{self.call_id}] Confianza baja ({confidence:.2f}), "
+                f"resultado cacheado para fallback"
             )
             return None
 
