@@ -5,6 +5,8 @@ Mismo contrato de API que la version anterior (Vosk).
 """
 import asyncio
 import logging
+import logging.handlers
+import os
 import threading
 import struct
 from concurrent.futures import ThreadPoolExecutor
@@ -24,10 +26,21 @@ from app.config import (
     AUDIO_INPUT_SAMPLE_RATE,
 )
 
+os.makedirs("logs", exist_ok=True)
 # ── Logging ──────────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.StreamHandler(),  # sigue yendo a journalctl
+        logging.handlers.TimedRotatingFileHandler(
+              "logs/dbuzon.log",
+              when="midnight",
+              interval=1,
+              backupCount=7,          # mantiene los ultimos 7 dias
+              encoding="utf-8",
+          ),
+    ],
 )
 logger = logging.getLogger(__name__)
 
