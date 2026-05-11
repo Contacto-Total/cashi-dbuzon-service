@@ -19,6 +19,7 @@ import base64
 import numpy as np
 
 from app.amd_detector import AMDDetector, AMDSession
+from app.cascade_amd import CascadeAMD
 from app.config import (
     SERVER_HOST,
     SERVER_PORT,
@@ -320,7 +321,7 @@ async def websocket_amd(websocket: WebSocket, call_id: str):
 
                 # ✅ _prepare_audio retorna float32
                 audio_f32, _ = _prepare_audio(audio_bytes, AUDIO_INPUT_SAMPLE_RATE)
-                
+
                 # ✅ Convertir a bytes para process_audio
                 audio_bytes_prepared = (audio_f32 * 32767).astype(np.int16).tobytes()
 
@@ -435,6 +436,102 @@ async def websocket_stream(websocket: WebSocket):
             await websocket.close()
         except Exception:
             pass
+
+
+# ── WebSocket /ws/amd-cascade/{call_id} ──────────────────────────────────────
+
+@app.websocket("/ws/amd-cascade/{call_id}")
+async def websocket_amd_cascade(websocket: WebSocket, call_id: str):
+    """
+    Endpoint NUEVO v1 - state machine de 4 etapas (RMS, Goertzel, VAD, F0).
+
+    Acepta:
+      - Text frames: metadata JSON (mod_audio_stream, disparador). Solo se loguea.
+      - Binary frames: PCM L16 mono 8kHz, cualquier tamano de chunk.
+
+    Emite eventos JSON:
+      - {"type": "analysis", ...}  cada ~100ms con scores y deltas
+      - {"type": "analysis", "decision": {...}}  cuando un score cruza umbral
+      - {"type": "decision", "decision": {...}, "reason": "timeout"}  al cerrar sin decision
+    """
+    await websocket.accept()
+    logger.info(f"[{call_id}] WS cascade conectado")
+
+    cascade = CascadeAMD(call_id=call_id, sample_rate=AUDIO_INPUT_SAMPLE_RATE)
+    start_time = asyncio.get_event_loop().time()
+    decided = False
+
+    try:
+        while True:
+            elapsed = asyncio.get_event_loop().time() - start_time
+            if elapsed > AMD_DECISION_TIMEOUT_SECONDS:
+                logger.info(f"[{call_id}] Cascade timeout ({elapsed:.1f}s)")
+                payload = cascade.force()
+                await websocket.send_json({
+                    "type": "decision",
+                    "decision": payload,
+                    "reason": "timeout",
+                })
+                decided = True
+                break
+
+            try:
+                msg = await asyncio.wait_for(websocket.receive(), timeout=0.3)
+            except asyncio.TimeoutError:
+                continue
+
+            mtype = msg.get("type")
+            if mtype == "websocket.disconnect":
+                break
+
+            audio_bytes = msg.get("bytes")
+            text_payload = msg.get("text")
+
+            if audio_bytes:
+                loop = asyncio.get_event_loop()
+                event = await loop.run_in_executor(
+                    amd_executor,
+                    cascade.push,
+                    audio_bytes,
+                )
+                if event is not None:
+                    await websocket.send_json(event)
+                    if "decision" in event:
+                        decided = True
+                        break
+            elif text_payload is not None:
+                # Metadata (mod_audio_stream o disparador). Solo log.
+                snippet = text_payload[:200]
+                logger.info(f"[{call_id}] meta: {snippet}")
+
+    except WebSocketDisconnect:
+        logger.info(f"[{call_id}] WS cascade desconectado por cliente")
+    except Exception as e:
+        logger.error(f"[{call_id}] Error WS cascade: {e}", exc_info=True)
+        try:
+            await websocket.send_json({"type": "error", "error": str(e)})
+        except Exception:
+            pass
+    finally:
+        if not decided and not cascade.decided:
+            try:
+                payload = cascade.force()
+                await websocket.send_json({
+                    "type": "decision",
+                    "decision": payload,
+                    "reason": "stream-ended",
+                })
+            except Exception:
+                pass
+        try:
+            await websocket.close()
+        except Exception:
+            pass
+        logger.info(
+            f"[{call_id}] WS cascade cerrado "
+            f"(chunks={cascade.chunks_received}, "
+            f"H={cascade.score_human:.2f} B={cascade.score_buzon:.2f})"
+        )
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

@@ -15,3 +15,7 @@ onnxruntime==1.18.1
 
 # Classifier - Whisper via faster-whisper (CTranslate2, 4x mas rapido que openai-whisper)
 faster-whisper==1.0.3
+
+# Cascade AMD v1 (state machine de 4 etapas)
+webrtcvad-wheels==2.0.14   # VAD binario, wheels precompilados (sin compilar C)
+aubio==0.4.9               # YIN pitch detection (F0)
