@@ -35,7 +35,7 @@ except ImportError:
 SAMPLE_RATE_DEFAULT = 8000
 SAMPLE_WIDTH_BYTES = 2  # PCM L16
 
-# Cap del acumulador antes de pasar a Whisper
+# Cap del acumulador antes de pasar a Whisper (Limite de analisis de modelos anteriores)
 MAX_ACCUMULATOR_MS = 1500
 
 # Tonos buzon / SIT / dial-tones tipicos
@@ -45,7 +45,7 @@ BUZON_FREQ_TOLERANCE_HZ = 30.0
 # Umbrales del state machine
 HUMAN_THRESHOLD = 3.0
 BUZON_THRESHOLD = 2.0
-SCORE_CAP = 10.0
+SCORE_CAP = 10.0 #limite superior para los scores (evita que un score muy alto)
 
 # WebRTC VAD
 VAD_AGGRESSIVENESS = 2
@@ -282,8 +282,8 @@ class CascadeAMD:
         self.contrib_buzon["vad"] += db_vad
         self.contrib_buzon["f0"] += db_f0
 
-        delta_h_total = dh_rms + dh_goe + dh_vad + dh_f0
-        delta_b_total = db_rms + db_goe + db_vad + db_f0
+        delta_h_total = dh_rms*(0.15) + dh_goe*(0.30) + dh_vad*(0.25) + dh_f0*(0.30)
+        delta_b_total = db_rms*(0.15) + db_goe*(0.30) + db_vad*(0.25) + db_f0*(0.30)
 
         self.score_human = _clamp(self.score_human + delta_h_total, 0.0, SCORE_CAP)
         self.score_buzon = _clamp(self.score_buzon + delta_b_total, 0.0, SCORE_CAP)
