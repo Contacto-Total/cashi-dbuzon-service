@@ -1,21 +1,16 @@
 """
-Cascade AMD analyzer - v1
+Cascade AMD analyzer - v2
 
-State machine de 4 etapas que compiten en paralelo entre HUMAN y BUZON:
-    1. Numpy RMS         - energia/silencio
-    2. Goertzel (FFT BER) - tonos puros de buzon (350/440/480/620/950/1400/1800 Hz)
-    3. WebRTC VAD        - voz vs no-voz
-    4. Aubio.pitch (YIN) - F0 fundamental en Hz
-
-Cada etapa devuelve (delta_human, delta_buzon). Los deltas se acumulan en un
-score corrido. Cuando un score cruza su umbral, se toma decision.
-
-Disenado para correr sobre un ring buffer unico (~200ms). Todas las etapas
-analizan el mismo acumulado.
+Diseno actual (acordado en sesion):
+- Acumulador (no ring rotativo): PCM L16 crece de 0 hasta 1500ms y se detiene.
+- En CADA chunk recibido (~50/s a 20ms) corren las 4 etapas sobre TODO el acumulado.
+- Cada chunk emite un solo evento type='analysis' con resultado de los 4 modelos,
+  sus deltas individuales, los scores acumulados y la contribucion por modelo.
+- Cuando un score cruza umbral -> decision (incluye triggered_by + last_delta_from).
+- Si llega al cap 1500ms sin decision -> whisper_needed=True (main.py corre Whisper).
 """
 from __future__ import annotations
 
-import math
 import time
 from dataclasses import dataclass, field
 from typing import Optional
@@ -40,34 +35,31 @@ except ImportError:
 SAMPLE_RATE_DEFAULT = 8000
 SAMPLE_WIDTH_BYTES = 2  # PCM L16
 
-# Ring buffer (ventana unica que analizan las 4 etapas)
-RING_WINDOW_MS = 200
+# Cap del acumulador antes de pasar a Whisper
+MAX_ACCUMULATOR_MS = 1500
 
-# Cada cuanto se ejecuta una pasada de analisis (no en cada chunk)
-ANALYZE_EVERY_MS = 100
-
-# Tonos buzon / SIT / dial tones tipicos
+# Tonos buzon / SIT / dial-tones tipicos
 BUZON_FREQS_HZ = [350.0, 440.0, 480.0, 620.0, 950.0, 1400.0, 1800.0]
 BUZON_FREQ_TOLERANCE_HZ = 30.0
 
-# Umbrales de decision
+# Umbrales del state machine
 HUMAN_THRESHOLD = 3.0
 BUZON_THRESHOLD = 2.0
-SCORE_CAP = 10.0  # tope duro para evitar saturacion
+SCORE_CAP = 10.0
 
 # WebRTC VAD
-VAD_AGGRESSIVENESS = 2  # 0..3 (mas alto = mas estricto al marcar speech)
-VAD_FRAME_MS = 20       # webrtcvad acepta 10/20/30 ms
+VAD_AGGRESSIVENESS = 2
+VAD_FRAME_MS = 20
 
-# Aubio pitch
+# Aubio pitch (YIN)
 AUBIO_WIN_SIZE = 1024
 AUBIO_HOP_SIZE = 512
+F0_HISTORY_MAX = 30  # mantener mediana sobre ultimos 30 hops validos
 
 
 # ── Tablas de score (delta_human, delta_buzon) ───────────────────────────────
 
 def score_rms(rms: float) -> tuple[float, float]:
-    """Energia RMS del acumulado (float32, rango 0..1)."""
     if rms < 0.005:
         return (0.0, 0.0)
     if rms < 0.01:
@@ -76,7 +68,6 @@ def score_rms(rms: float) -> tuple[float, float]:
 
 
 def score_goertzel(ratio: float) -> tuple[float, float]:
-    """BER en bandas buzon: energia_en_bandas / energia_total."""
     if ratio < 0.3:
         return (0.0, 0.0)
     if ratio < 0.5:
@@ -93,7 +84,6 @@ def score_vad(is_speech: bool) -> tuple[float, float]:
 
 
 def score_f0(hz: float) -> tuple[float, float]:
-    """F0 dominante en Hz (0 = sin pitch / silencio)."""
     if hz <= 0.0 or hz < 80.0:
         return (0.0, 0.0)
     if hz < 300.0:
@@ -105,7 +95,7 @@ def score_f0(hz: float) -> tuple[float, float]:
     return (0.0, 0.2)
 
 
-# ── Helpers de DSP ───────────────────────────────────────────────────────────
+# ── DSP helpers ──────────────────────────────────────────────────────────────
 
 def band_energy_ratio(
     samples_f32: np.ndarray,
@@ -113,13 +103,7 @@ def band_energy_ratio(
     sample_rate: int,
     tol_hz: float = BUZON_FREQ_TOLERANCE_HZ,
 ) -> float:
-    """
-    Band Energy Ratio via FFT (equivalente a sumar Goertzels en cada freq).
-
-    BER = sum(power[freq in target +/- tol]) / sum(power_total)
-
-    Rango: 0..1. Cerca de 1 si la energia se concentra en los tonos objetivo.
-    """
+    """BER via FFT: sum(power en bandas objetivo) / sum(power total). Rango 0..1."""
     n = len(samples_f32)
     if n == 0:
         return 0.0
@@ -136,11 +120,15 @@ def band_energy_ratio(
     return band_total / total
 
 
-# ── Detector F0 stateful (mantiene estado del YIN entre chunks) ──────────────
-
 class _F0Detector:
+    """
+    Aubio.pitch incremental: procesa solo los hops nuevos del acumulador y
+    devuelve la mediana de los ultimos F0 validos.
+    """
     def __init__(self, sample_rate: int):
-        self.sample_rate = sample_rate
+        self._sample_rate = sample_rate
+        self._processed = 0
+        self._history: list[float] = []
         if _AUBIO_AVAILABLE:
             self._pitch = aubio.pitch("yin", AUBIO_WIN_SIZE, AUBIO_HOP_SIZE, sample_rate)
             self._pitch.set_unit("Hz")
@@ -148,62 +136,51 @@ class _F0Detector:
         else:
             self._pitch = None
 
-    def detect_median(self, samples_f32: np.ndarray) -> float:
-        """
-        Corre aubio.pitch en hops consecutivos sobre el buffer y devuelve la
-        mediana de F0 valida (>0 Hz). 0 si nada de pitch.
-        """
-        if self._pitch is None or len(samples_f32) < AUBIO_HOP_SIZE:
+    def update(self, accumulator_f32: np.ndarray) -> float:
+        if self._pitch is None:
             return 0.0
-        out = []
-        for i in range(0, len(samples_f32) - AUBIO_HOP_SIZE + 1, AUBIO_HOP_SIZE):
-            hop = samples_f32[i:i + AUBIO_HOP_SIZE].astype(np.float32, copy=False)
+        i = self._processed
+        while i + AUBIO_HOP_SIZE <= len(accumulator_f32):
+            hop = accumulator_f32[i:i + AUBIO_HOP_SIZE].astype(np.float32, copy=False)
             try:
                 f0 = float(self._pitch(hop)[0])
             except Exception:
                 f0 = 0.0
             if f0 > 0.0:
-                out.append(f0)
-        if not out:
+                self._history.append(f0)
+                if len(self._history) > F0_HISTORY_MAX:
+                    self._history.pop(0)
+            i += AUBIO_HOP_SIZE
+        self._processed = i
+        if not self._history:
             return 0.0
-        return float(np.median(out))
+        return float(np.median(self._history))
 
 
 # ── State machine ────────────────────────────────────────────────────────────
 
-@dataclass
-class CascadeSnapshot:
-    """Snapshot de la ultima pasada de analisis (para debug / telemetria)."""
-    rms: float = 0.0
-    goertzel_ratio: float = 0.0
-    vad_active: bool = False
-    f0_hz: float = 0.0
-    delta_human: float = 0.0
-    delta_buzon: float = 0.0
-    score_human: float = 0.0
-    score_buzon: float = 0.0
-
-
 class CascadeAMD:
+    MODELS = ("rms", "goertzel", "vad", "f0")
+
     def __init__(self, call_id: str, sample_rate: int = SAMPLE_RATE_DEFAULT):
         self.call_id = call_id
         self.sample_rate = sample_rate
 
-        # Ring buffer en bytes (PCM L16, int16 little-endian)
+        # Acumulador PCM L16
         self._buffer = bytearray()
-        self._window_bytes = int(sample_rate * RING_WINDOW_MS / 1000) * SAMPLE_WIDTH_BYTES
-        self._analyze_every_bytes = int(sample_rate * ANALYZE_EVERY_MS / 1000) * SAMPLE_WIDTH_BYTES
+        self._max_bytes = int(sample_rate * MAX_ACCUMULATOR_MS / 1000) * SAMPLE_WIDTH_BYTES
         self._vad_frame_bytes = int(sample_rate * VAD_FRAME_MS / 1000) * SAMPLE_WIDTH_BYTES
 
         # Contadores
         self.total_bytes = 0
         self.chunks_received = 0
-        self._bytes_since_last_analysis = 0
 
-        # Estado del state machine
+        # State machine
         self.score_human = 0.0
         self.score_buzon = 0.0
-        self.last = CascadeSnapshot()
+        self.contrib_human = {m: 0.0 for m in self.MODELS}
+        self.contrib_buzon = {m: 0.0 for m in self.MODELS}
+        self.last_delta_from: Optional[str] = None
 
         # Detectores
         self._vad = webrtcvad.Vad(VAD_AGGRESSIVENESS) if _WEBRTC_VAD_AVAILABLE else None
@@ -211,6 +188,7 @@ class CascadeAMD:
 
         # Decision
         self.decided = False
+        self.whisper_needed = False
         self.decision_label: Optional[str] = None
         self.decision_reason: str = ""
         self.decided_at_chunk = 0
@@ -220,135 +198,128 @@ class CascadeAMD:
 
     # ── API publica ──────────────────────────────────────────────────────
 
+    def get_accumulator_f32(self) -> np.ndarray:
+        """Audio acumulado como float32 mono (para pasar a Whisper)."""
+        samples_i16 = np.frombuffer(bytes(self._buffer), dtype=np.int16)
+        return samples_i16.astype(np.float32) / 32768.0
+
     def push(self, audio_bytes: bytes) -> Optional[dict]:
         """
-        Recibe un chunk PCM L16. Devuelve:
-          - None si todavia no toca analizar
-          - dict con evento 'analysis' si se corrio una pasada (con o sin decision)
-        Si la decision se tomo en esta pasada, el dict incluye 'decision'.
+        Recibe un chunk PCM L16. Corre las 4 etapas sobre el acumulado.
+        Devuelve evento type='analysis' (o None si ya hubo decision / whisper).
+        El evento puede incluir 'decision' inline o 'whisper_needed': True.
         """
-        if not audio_bytes:
+        if not audio_bytes or self.decided or self.whisper_needed:
             return None
 
-        self._buffer.extend(audio_bytes)
+        # Anexar al acumulador respetando el cap
+        space_left = self._max_bytes - len(self._buffer)
+        if space_left <= 0:
+            self.whisper_needed = True
+            return {
+                "type": "whisper_pending",
+                "n": self.chunks_received,
+                "elapsed_ms": int((time.time() - self._t0) * 1000),
+            }
+
+        to_add = audio_bytes[:space_left]
+        self._buffer.extend(to_add)
         self.total_bytes += len(audio_bytes)
         self.chunks_received += 1
-        self._bytes_since_last_analysis += len(audio_bytes)
 
-        # Recortar al tamano de ventana
-        if len(self._buffer) > self._window_bytes:
-            del self._buffer[:len(self._buffer) - self._window_bytes]
+        event = self._analyze()
 
-        if self.decided:
-            return None
+        # Llegamos al cap en este push y no se decidio -> marcar Whisper
+        if not self.decided and len(self._buffer) >= self._max_bytes:
+            self.whisper_needed = True
+            event["whisper_needed"] = True
 
-        # Aun no toca correr analisis
-        if self._bytes_since_last_analysis < self._analyze_every_bytes:
-            return None
-
-        # Esperar a tener ventana completa antes de la primera pasada
-        if len(self._buffer) < self._window_bytes:
-            return None
-
-        self._bytes_since_last_analysis = 0
-        return self._analyze()
+        return event
 
     def force(self) -> dict:
-        """
-        Forzar decision al cierre (timeout / fin de stream). Gana el score
-        mas alto; empate o ambos cero -> HUMAN por defecto (politica conservadora:
-        ante duda no cortar la llamada).
-        """
+        """Forzar decision al cierre sin haber cruzado umbral. HUMAN por defecto."""
         if not self.decided:
             if self.score_buzon > self.score_human:
+                self.last_delta_from = self._top_model(self.contrib_buzon)
                 self._decide("MACHINE", "timeout-favor-buzon")
-            else:
-                self._decide("HUMAN", "timeout-favor-human")
-        return self.build_decision_payload()
-
-    def build_decision_payload(self) -> dict:
-        denom = max(HUMAN_THRESHOLD, BUZON_THRESHOLD)
-        conf = max(self.score_human, self.score_buzon) / denom if denom > 0 else 0.0
-        return {
-            "result": self.decision_label,
-            "reason": self.decision_reason,
-            "confidence": round(min(conf, 1.0), 3),
-            "scores": {
-                "human": round(self.score_human, 3),
-                "buzon": round(self.score_buzon, 3),
-            },
-            "decided_at_chunk": self.decided_at_chunk,
-            "decided_at_ms": self.decided_at_ms,
-            "decided_bytes": self.decided_bytes,
-        }
+                return self._build_decision_payload(side="buzon")
+            self.last_delta_from = self._top_model(self.contrib_human)
+            self._decide("HUMAN", "timeout-favor-human")
+            return self._build_decision_payload(side="human")
+        side = "buzon" if self.decision_label == "MACHINE" else "human"
+        return self._build_decision_payload(side=side)
 
     # ── Internals ────────────────────────────────────────────────────────
 
     def _analyze(self) -> dict:
         samples_i16 = np.frombuffer(bytes(self._buffer), dtype=np.int16)
         samples_f32 = samples_i16.astype(np.float32) / 32768.0
+        n_samples = len(samples_f32)
 
         # 1) RMS
-        rms = float(np.sqrt(np.mean(samples_f32 ** 2))) if samples_f32.size else 0.0
-        d_h_rms, d_b_rms = score_rms(rms)
+        rms = float(np.sqrt(np.mean(samples_f32 ** 2))) if n_samples else 0.0
+        dh_rms, db_rms = score_rms(rms)
 
         # 2) Goertzel (BER via FFT)
         ratio = band_energy_ratio(samples_f32, BUZON_FREQS_HZ, self.sample_rate)
-        d_h_goe, d_b_goe = score_goertzel(ratio)
+        dh_goe, db_goe = score_goertzel(ratio)
 
         # 3) WebRTC VAD
         vad_active = self._run_vad(samples_i16)
-        d_h_vad, d_b_vad = score_vad(vad_active)
+        dh_vad, db_vad = score_vad(vad_active)
 
-        # 4) F0 / pitch
-        f0_hz = self._f0.detect_median(samples_f32)
-        d_h_f0, d_b_f0 = score_f0(f0_hz)
+        # 4) F0 / Pitch
+        f0_hz = self._f0.update(samples_f32)
+        dh_f0, db_f0 = score_f0(f0_hz)
 
-        delta_h = d_h_rms + d_h_goe + d_h_vad + d_h_f0
-        delta_b = d_b_rms + d_b_goe + d_b_vad + d_b_f0
+        # Acumular contribuciones por modelo y scores totales
+        self.contrib_human["rms"] += dh_rms
+        self.contrib_human["goertzel"] += dh_goe
+        self.contrib_human["vad"] += dh_vad
+        self.contrib_human["f0"] += dh_f0
+        self.contrib_buzon["rms"] += db_rms
+        self.contrib_buzon["goertzel"] += db_goe
+        self.contrib_buzon["vad"] += db_vad
+        self.contrib_buzon["f0"] += db_f0
 
-        self.score_human = _clamp(self.score_human + delta_h, 0.0, SCORE_CAP)
-        self.score_buzon = _clamp(self.score_buzon + delta_b, 0.0, SCORE_CAP)
+        delta_h_total = dh_rms + dh_goe + dh_vad + dh_f0
+        delta_b_total = db_rms + db_goe + db_vad + db_f0
 
-        self.last = CascadeSnapshot(
-            rms=rms,
-            goertzel_ratio=ratio,
-            vad_active=vad_active,
-            f0_hz=f0_hz,
-            delta_human=delta_h,
-            delta_buzon=delta_b,
-            score_human=self.score_human,
-            score_buzon=self.score_buzon,
-        )
+        self.score_human = _clamp(self.score_human + delta_h_total, 0.0, SCORE_CAP)
+        self.score_buzon = _clamp(self.score_buzon + delta_b_total, 0.0, SCORE_CAP)
 
         elapsed_ms = int((time.time() - self._t0) * 1000)
+        accumulator_ms = int(n_samples * 1000 / self.sample_rate)
+
         event: dict = {
             "type": "analysis",
             "n": self.chunks_received,
             "elapsed_ms": elapsed_ms,
-            "stage": {
-                "rms": round(rms, 4),
-                "goertzel_ratio": round(ratio, 4),
-                "vad": bool(vad_active),
-                "f0_hz": round(f0_hz, 1),
+            "accumulator_ms": accumulator_ms,
+            "models": {
+                "rms":      {"value": round(rms, 4),    "dh": round(dh_rms, 3), "db": round(db_rms, 3)},
+                "goertzel": {"value": round(ratio, 4),  "dh": round(dh_goe, 3), "db": round(db_goe, 3)},
+                "vad":      {"value": bool(vad_active), "dh": round(dh_vad, 3), "db": round(db_vad, 3)},
+                "f0":       {"value": round(f0_hz, 1),  "dh": round(dh_f0, 3),  "db": round(db_f0, 3)},
             },
-            "deltas": {
-                "human": round(delta_h, 3),
-                "buzon": round(delta_b, 3),
-            },
-            "scores": {
-                "human": round(self.score_human, 3),
-                "buzon": round(self.score_buzon, 3),
-            },
+            "deltas": {"human": round(delta_h_total, 3), "buzon": round(delta_b_total, 3)},
+            "scores": {"human": round(self.score_human, 3), "buzon": round(self.score_buzon, 3)},
+            "contrib_human": {k: round(v, 3) for k, v in self.contrib_human.items()},
+            "contrib_buzon": {k: round(v, 3) for k, v in self.contrib_buzon.items()},
         }
 
-        # Decision: BUZON se evalua primero (cortar tiene prioridad sobre conectar)
+        # Check umbrales (BUZON primero, cortar tiene prioridad sobre conectar)
+        per_model_dh = {"rms": dh_rms, "goertzel": dh_goe, "vad": dh_vad, "f0": dh_f0}
+        per_model_db = {"rms": db_rms, "goertzel": db_goe, "vad": db_vad, "f0": db_f0}
+
         if self.score_buzon >= BUZON_THRESHOLD:
+            self.last_delta_from = max(per_model_db, key=lambda k: per_model_db[k])
             self._decide("MACHINE", f"buzon>={BUZON_THRESHOLD}")
-            event["decision"] = self.build_decision_payload()
+            event["decision"] = self._build_decision_payload(side="buzon")
         elif self.score_human >= HUMAN_THRESHOLD:
+            self.last_delta_from = max(per_model_dh, key=lambda k: per_model_dh[k])
             self._decide("HUMAN", f"human>={HUMAN_THRESHOLD}")
-            event["decision"] = self.build_decision_payload()
+            event["decision"] = self._build_decision_payload(side="human")
 
         return event
 
@@ -357,6 +328,8 @@ class CascadeAMD:
             return False
         audio_bytes = samples_i16.tobytes()
         frame_bytes = self._vad_frame_bytes
+        if frame_bytes <= 0 or len(audio_bytes) < frame_bytes:
+            return False
         n_speech = 0
         n_frames = 0
         for i in range(0, len(audio_bytes) - frame_bytes + 1, frame_bytes):
@@ -369,7 +342,6 @@ class CascadeAMD:
             n_frames += 1
         if n_frames == 0:
             return False
-        # Mayoria simple
         return n_speech * 2 >= n_frames
 
     def _decide(self, label: str, reason: str):
@@ -379,6 +351,56 @@ class CascadeAMD:
         self.decided_at_chunk = self.chunks_received
         self.decided_at_ms = int((time.time() - self._t0) * 1000)
         self.decided_bytes = self.total_bytes
+
+    def _build_decision_payload(self, side: str) -> dict:
+        denom = HUMAN_THRESHOLD if side == "human" else BUZON_THRESHOLD
+        score_won = self.score_human if side == "human" else self.score_buzon
+        conf = min(score_won / denom, 1.0) if denom > 0 else 0.0
+
+        contrib_side = self.contrib_human if side == "human" else self.contrib_buzon
+        triggered_by = self._top_model(contrib_side)
+
+        return {
+            "result": self.decision_label,
+            "reason": self.decision_reason,
+            "confidence": round(conf, 3),
+            "scores": {
+                "human": round(self.score_human, 3),
+                "buzon": round(self.score_buzon, 3),
+            },
+            "contrib_human": {k: round(v, 3) for k, v in self.contrib_human.items()},
+            "contrib_buzon": {k: round(v, 3) for k, v in self.contrib_buzon.items()},
+            "triggered_by": triggered_by,
+            "last_delta_from": self.last_delta_from,
+            "decided_at_chunk": self.decided_at_chunk,
+            "decided_at_ms": self.decided_at_ms,
+            "decided_bytes": self.decided_bytes,
+        }
+
+    @staticmethod
+    def _top_model(contrib: dict) -> str:
+        return max(contrib, key=lambda k: contrib[k])
+
+    def set_whisper_decision(self, result: str, reason: str, transcription: str = "",
+                              confidence: float = 0.0) -> dict:
+        """
+        Llamado por main.py despues de correr Whisper sobre el acumulado.
+        Cierra el state machine con la decision de Whisper.
+        """
+        self.decided = True
+        self.decision_label = result
+        self.decision_reason = f"whisper:{reason}"
+        self.decided_at_chunk = self.chunks_received
+        self.decided_at_ms = int((time.time() - self._t0) * 1000)
+        self.decided_bytes = self.total_bytes
+        self.last_delta_from = "whisper"
+        side = "buzon" if result == "MACHINE" else "human"
+
+        payload = self._build_decision_payload(side=side)
+        payload["confidence"] = round(confidence, 3)
+        payload["transcription"] = transcription
+        payload["triggered_by"] = "whisper"
+        return payload
 
 
 def _clamp(x: float, lo: float, hi: float) -> float:

@@ -461,6 +461,26 @@ async def websocket_amd_cascade(websocket: WebSocket, call_id: str):
     start_time = asyncio.get_event_loop().time()
     decided = False
 
+    async def _run_whisper_fallback() -> dict:
+        """Corre Whisper sobre el acumulado y devuelve payload de decision."""
+        audio_f32 = cascade.get_accumulator_f32()
+        loop = asyncio.get_event_loop()
+        whisper_result = await loop.run_in_executor(
+            amd_executor,
+            amd_detector.classifier.predict,
+            audio_f32,
+            AUDIO_INPUT_SAMPLE_RATE,
+        )
+        result = whisper_result.get("result", "MACHINE")
+        if result not in ("HUMAN", "MACHINE"):
+            result = "MACHINE"  # conservador si Whisper no decidio
+        return cascade.set_whisper_decision(
+            result=result,
+            reason=whisper_result.get("reason", ""),
+            transcription=whisper_result.get("transcription", ""),
+            confidence=float(whisper_result.get("confidence", 0.0)),
+        )
+
     try:
         while True:
             elapsed = asyncio.get_event_loop().time() - start_time
@@ -496,7 +516,20 @@ async def websocket_amd_cascade(websocket: WebSocket, call_id: str):
                 )
                 if event is not None:
                     await websocket.send_json(event)
+                    # State machine decidio antes del cap
                     if "decision" in event:
+                        decided = True
+                        break
+                    # Llego al cap de 1500ms -> fallback Whisper
+                    if event.get("whisper_needed") or event.get("type") == "whisper_pending":
+                        logger.info(f"[{call_id}] Cap 1500ms alcanzado, corriendo Whisper...")
+                        await websocket.send_json({"type": "whisper_running"})
+                        payload = await _run_whisper_fallback()
+                        await websocket.send_json({
+                            "type": "decision",
+                            "decision": payload,
+                            "reason": "whisper",
+                        })
                         decided = True
                         break
             elif text_payload is not None:
