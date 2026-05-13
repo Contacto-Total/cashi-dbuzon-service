@@ -1,14 +1,4 @@
-"""
-Cascade AMD analyzer - v2
 
-Diseno actual (acordado en sesion):
-- Acumulador (no ring rotativo): PCM L16 crece de 0 hasta 1500ms y se detiene.
-- En CADA chunk recibido (~50/s a 20ms) corren las 4 etapas sobre TODO el acumulado.
-- Cada chunk emite un solo evento type='analysis' con resultado de los 4 modelos,
-  sus deltas individuales, los scores acumulados y la contribucion por modelo.
-- Cuando un score cruza umbral -> decision (incluye triggered_by + last_delta_from).
-- Si llega al cap 1500ms sin decision -> whisper_needed=True (main.py corre Whisper).
-"""
 from __future__ import annotations
 
 import time
@@ -101,8 +91,9 @@ def band_energy_ratio(
     samples_f32: np.ndarray,
     target_freqs_hz: list[float],
     sample_rate: int,
-    tol_hz: float = BUZON_FREQ_TOLERANCE_HZ,
-) -> float:
+    tol_hz: float = BUZON_FREQ_TOLERANCE_HZ,) -> float:
+
+    
     """BER via FFT: sum(power en bandas objetivo) / sum(power total). Rango 0..1."""
     n = len(samples_f32)
     if n == 0:
@@ -255,6 +246,11 @@ class CascadeAMD:
         samples_i16 = np.frombuffer(bytes(self._buffer), dtype=np.int16)
         samples_f32 = samples_i16.astype(np.float32) / 32768.0
         n_samples = len(samples_f32)
+        prom_rm=0.15
+        prom_goe=0.30
+        prom_vad=0.25
+        prom_f0=0.30
+
 
         # 1) RMS
         rms = float(np.sqrt(np.mean(samples_f32 ** 2))) if n_samples else 0.0
