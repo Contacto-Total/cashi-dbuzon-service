@@ -2,7 +2,6 @@ import time
 import numpy as np
 import webrtcvad as wtcvad
 import aubio as aubio
-from goertzel import goertzel as gc
 
 # import para websocket audio
 from fastapi import FastAPI, WebSocket
