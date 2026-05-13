@@ -12,7 +12,7 @@ import scipy.signal
 
 from starlette.websockets import WebSocketDisconnect
 
-import unicorn
+import uvicorn
 
 
 WHISPER_MODEL = WhisperModel(
@@ -550,5 +550,5 @@ class CascadaAMDClass:
 if __name__ == "__main__":
     print("Iniciando servidor de AMD en WebSocket...")
 
-    unicorn.run(app, host="0.0.0.0",
+    uvicorn.run(app, host="0.0.0.0",
                 port=8765)
