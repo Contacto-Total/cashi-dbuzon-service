@@ -111,6 +111,32 @@ def score_f0_pitch (f0_pitch_score: float) -> tuple [float, float]:
     else:
         return (0.0, 0.2)
 
+# Funcion para Goertzel
+def gc(samples, sample_rate, target_freq):
+
+    n = len(samples)
+
+    if n == 0:
+        return 0.0
+
+    k = int(0.5 + ((n * target_freq) / sample_rate))
+
+    omega = (2.0 * np.pi * k) / n
+
+    coeff = 2.0 * np.cos(omega)
+
+    q0 = 0.0
+    q1 = 0.0
+    q2 = 0.0
+
+    for sample in samples:
+        q0 = coeff * q1 - q2 + sample
+        q2 = q1
+        q1 = q0
+
+    power = q1**2 + q2**2 - coeff * q1 * q2
+
+    return float(power)
 
 @app.websocket("/ws/amd-cascade/{call_id}")
 async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
