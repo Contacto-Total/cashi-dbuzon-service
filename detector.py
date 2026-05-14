@@ -396,16 +396,28 @@ class CascadaAMDClass:
         #--------------------------------------------------------
 
         # Detectamos Primero con Numpy
-        numpy = self.detect_numpy(numpy_window)
+        if len(numpy_window) < numpy_window_bytes:
+            numpy = 0.0
+        else:
+            numpy = self.detect_numpy(numpy_window)
 
         # Detectamos luego con Goertzel
-        goertzel = self.detect_goertzel(goertzel_window, SAMPLE_RATE_DEFAULT)
+        if len(goertzel_window) < goertzel_window_bytes:
+            goertzel = 0.0
+        else:
+            goertzel = self.detect_goertzel(goertzel_window, SAMPLE_RATE_DEFAULT)
 
         # Detectamos luego con WebRTC VAD
-        webrtcvad_score = self.detect_webrtcvad(vad_window, self.vad, SAMPLE_RATE_DEFAULT)
+        if len(vad_window) < vad_window_bytes:
+            webrtcvad_score = 0.0
+        else:
+            webrtcvad_score = self.detect_webrtcvad(vad_window, self.vad, SAMPLE_RATE_DEFAULT)
 
         # Detectamos luego con F0 Pitch
-        f0_pitch = self.detect_f0_pitch(f0_window)
+        if len(f0_window) < f0_window_bytes:
+            f0_pitch = 0.0
+        else:
+            f0_pitch = self.detect_f0_pitch(f0_window)
 
 
         #--------------------------------------------------------
