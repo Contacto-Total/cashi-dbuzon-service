@@ -70,16 +70,22 @@ VAR_AGRESSIVENESS = 2
 
 
 def score_numpy (numpy_rms: float) -> tuple [float, float]:
-    if numpy_rms < 0.005:
+    if numpy_rms is None:
         return (0.0, 0.0)
+    
+    if numpy_rms < 0.005:
+        return (-0.2, 0.0)
     elif (numpy_rms >= 0.005) and (numpy_rms < 0.01):
         return (0.0, 0.5)
     else:
         return (0.5, -0.1)
     
 def score_goertzel (goertzel_score: float) -> tuple [float, float]:
-    if goertzel_score < 0.3:
+    if goertzel_score is None:
         return (0.0, 0.0)
+    
+    if goertzel_score < 0.3:
+        return (0.1, -0.2)
     elif (goertzel_score >= 0.3) and (goertzel_score < 0.5):
         return (-0.1, 0.3)
     elif (goertzel_score >= 0.5) and (goertzel_score < 0.7):
@@ -89,6 +95,9 @@ def score_goertzel (goertzel_score: float) -> tuple [float, float]:
     
 
 def score_webrtcvad (webrtcvad_score: float) -> tuple [float, float]:
+    if webrtcvad_score is None:
+        return (0.0, 0.0)
+    
     if webrtcvad_score < 0.2:
         return (0.0, 0.5)
     elif (webrtcvad_score >= 0.2) and (webrtcvad_score < 0.5):
@@ -100,6 +109,9 @@ def score_webrtcvad (webrtcvad_score: float) -> tuple [float, float]:
     
 
 def score_f0_pitch (f0_pitch_score: float) -> tuple [float, float]:
+    if f0_pitch_score is None:
+        return (0.0, 0.0)
+
     if f0_pitch_score < 80:
         return (0.0, 0.0)
     elif (f0_pitch_score >= 80) and (f0_pitch_score < 300):
@@ -400,25 +412,25 @@ class CascadaAMDClass:
 
         # Detectamos Primero con Numpy
         if len(numpy_window) < numpy_window_bytes:
-            numpy = 0.0
+            numpy = None
         else:
             numpy = self.detect_numpy(numpy_window)
 
         # Detectamos luego con Goertzel
         if len(goertzel_window) < goertzel_window_bytes:
-            goertzel = 0.0
+            goertzel = None
         else:
             goertzel = self.detect_goertzel(goertzel_window, SAMPLE_RATE_DEFAULT)
 
         # Detectamos luego con WebRTC VAD
         if len(vad_window) < vad_window_bytes:
-            webrtcvad_score = 0.0
+            webrtcvad_score = None
         else:
             webrtcvad_score = self.detect_webrtcvad(vad_window, self.vad, SAMPLE_RATE_DEFAULT)
 
         # Detectamos luego con F0 Pitch
         if len(f0_window) < f0_window_bytes:
-            f0_pitch = 0.0
+            f0_pitch = None
         else:
             f0_pitch = self.detect_f0_pitch(f0_window)
 
