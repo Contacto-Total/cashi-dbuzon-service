@@ -238,7 +238,7 @@ class CascadaAMDClass:
 
 
         # Inicializamos el detector de f0/pitch de Aubio con los parametros definidos arriba
-        self.pitch_detector = aubio.pitch("yin", 1024, 160, SAMPLE_RATE_DEFAULT)
+        self.pitch_detector = aubio.pitch("yin", 1024, 800, SAMPLE_RATE_DEFAULT)
 
         self.pitch_detector.set_unit("Hz")
         self.pitch_detector.set_silence(-40)
