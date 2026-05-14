@@ -1,4 +1,5 @@
 import time
+from unittest import result
 import numpy as np
 import webrtcvad as wtcvad
 import aubio as aubio
@@ -162,9 +163,11 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
         if len(cascada.ring_buffer) > LIMIT_BUFFER_BYTES:
             # Falback para llamar a Whisper
             cascada.ring_buffer = cascada.ring_buffer[-LIMIT_BUFFER_BYTES:]
-    
+        
         # Jalamos funcion de analisis para una llamada
         result = cascada.analize_audio()
+
+        print(result)
         
         # Pasamos resultados cada que se actualiza el buffer
         await websocket.send_json({"type": "parcial", ** result })
