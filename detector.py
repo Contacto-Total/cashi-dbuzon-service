@@ -15,6 +15,9 @@ from starlette.websockets import WebSocketDisconnect
 
 import uvicorn
 
+# para guardar archivos como wav
+import wave
+
 
 WHISPER_MODEL = WhisperModel(
     "tiny",
@@ -396,7 +399,7 @@ class CascadaAMDClass:
         #--------------------------------------------------------
 
         # Ultimos 40ms de audio a 8kHz
-        numpy_window = self.ring_buffer[-numpy_window_bytes:]  
+        numpy_window = self.ring_buffer[-numpy_window_bytes:]
 
         goertzel_window = self.ring_buffer[-goertzel_window_bytes:]  # Ultimos 100ms de audio a 8kHz
 
@@ -414,6 +417,17 @@ class CascadaAMDClass:
         if len(numpy_window) < numpy_window_bytes:
             numpy = None
         else:
+            with open("numpy _window.raw", "wb") as wav_fle:
+                    wav_fle.setnchannels(1)  # que sea mono
+                    wav_fle.setsampwidth(2)  # int16 : osea 2 bytes
+                    wav_fle.setframerate(SAMPLE_RATE_DEFAULT)  # 8000 Hz
+                    wav_fle.writeframes(numpy_window)  # escribimos los bytes de audio de la ventana de numpy
+            
+            #imprimimos en logs por formula cuantos ms fueron
+            duration_ms = (len(numpy_window) / (8000 * 2)) * 1000
+            print(f"Duración de ventana numpy: {duration_ms} ms")
+            
+            # Ejecutamos Numpy
             numpy = self.detect_numpy(numpy_window)
 
         # Detectamos luego con Goertzel
@@ -472,12 +486,6 @@ class CascadaAMDClass:
             db_f0_pitch * weight_f0_pitch
         )
 
-        # Limitar los scores a un rango razonable (Rango de 10)
-        self.score_human = max(0.0, min(self.score_human, 10.0))
-        self.score_buzon = max(0.0, min(self.score_buzon, 10.0))
-
-
-       
 
         if self.score_human >= HUMAN_THRESHOLD:
             self.decision = "humano"
