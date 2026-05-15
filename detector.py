@@ -189,7 +189,7 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
 
 
         # Si ya tenemos la decision de buzon o humano, llamamos
-        if result["desiciion"] in ["humano", "buzón"]:
+        if result["decision"] in ["humano", "buzón"]:
             await websocket.send_json({"type":"final",
             "source": "dsp",
             ** result })
@@ -499,25 +499,40 @@ class CascadaAMDClass:
 
         return {
             # Resultados de la cascada
-            "desiciion": self.decision,
-            "score_human": self.score_human,
-            "score_buzon": self.score_buzon,
+            "decision": self.decision,
 
-            # Resultados de los modelos
-            "numpy": numpy,
-            "goertzel": goertzel,
-            "webrtcvad": webrtcvad_score,
-            "f0_pitch": f0_pitch,
+            "scores":{
+                "human": self.score_human,
+                "buzon": self.score_buzon
+            },
+            
+            "models": {
+                # Resultados de los modelos
+                "numpy": numpy,
+                "goertzel": goertzel,
+                "webrtcvad": webrtcvad_score,
+                "f0_pitch": f0_pitch
+            },
 
-            # Resultados de Humano y Buzon por modelo
-            "db_numpy": db_numpy,
-            "dh_numpy": dh_numpy,
-            "db_goertzel": db_goertzel,
-            "dh_goertzel": dh_goertzel,
-            "db_webrtcvad": db_webrtcvad,
-            "dh_webrtcvad": dh_webrtcvad,
-            "db_f0_pitch": db_f0_pitch,
-            "dh_f0_pitch": dh_f0_pitch,
+            "weights":{
+                # Resultados de Humano y Buzon por modelo
+                "numpy":{
+                    "db_numpy": db_numpy,
+                    "dh_numpy": dh_numpy,
+                },
+                "goertzel":{
+                    "db_goertzel": db_goertzel,
+                    "dh_goertzel": dh_goertzel,
+                },
+                "webrtcvad":{
+                    "db_webrtcvad": db_webrtcvad,
+                    "dh_webrtcvad": dh_webrtcvad,
+                },
+                "f0_pitch":{
+                    "db_f0_pitch": db_f0_pitch,
+                    "dh_f0_pitch": dh_f0_pitch,
+                },
+            }
         }
 
 
