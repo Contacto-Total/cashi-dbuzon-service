@@ -190,9 +190,17 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
 
         # Si ya tenemos la decision de buzon o humano, llamamos
         if result["decision"] in ["humano", "buzón"]:
-            await websocket.send_json({"type":"final",
-            "source": "dsp",
-            ** result })
+            await websocket.send_json({
+                "type":"decision",
+                "decision": {
+                    "result": result["decision"],
+                    "scores": result["scores"],
+                    "models": result["models"],
+                    "contrib_human": result["contrib_human"],
+                    "contrib_buzon": result["contrib_buzon"]
+                },
+                "source": "dsp",
+                ** result })
 
             print("Decision tomada, terminando analisis de audio.")
             await websocket.close()
@@ -204,7 +212,7 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
 
             whisper_result = cascada.detect_whisper()
 
-            await websocket.send_json({"type":"final",
+            await websocket.send_json({"type":"decision",
                 "source": "whisper",
             ** whisper_result })
 
