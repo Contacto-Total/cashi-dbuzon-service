@@ -223,7 +223,7 @@ weight_f0_pitch = 0.30
 
 # Ventana de ms por modelo
 Numpy_window_ms = 40
-Goertzel_window_ms = 60 # 100 ms 
+Goertzel_window_ms = 60 # 100 ms
 VAD_window_ms = 80 # 100 ms
 F0_window_ms = 100
 whisper_window_ms = 1500
@@ -262,10 +262,7 @@ class CascadaAMDClass:
         self.pitch_detector.set_silence(-40)
 
         # Contador para wavs de numpy 40 ms
-        self.counter_numpy_wav=0
-        self.counter_goertzel_wav=0
-        self.counter_vad_wav=0
-        self.counter_f0_wav=0
+        self.counter_buffer=0
 
 
     # Devuelve energia de la ventana de audio usando numpy
@@ -419,17 +416,18 @@ class CascadaAMDClass:
         # Aqui empieza la cascada de deteccion
         #--------------------------------------------------------
 
+        filename = f"buffer_window_{self.counter_buffer}.wav"
+        with wave.open(filename, "wb") as wav_fle:
+                    wav_fle.setnchannels(1)  # que sea mono
+                    wav_fle.setsampwidth(2)  # int16 : osea 2 bytes
+                    wav_fle.setframerate(SAMPLE_RATE_DEFAULT)  # 8000 Hz
+                    wav_fle.writeframes(self.ring_buffer)  # escribimos los bytes de audio de la ventana de numpy
+        self.counter_buffer += 1
+
         # Detectamos Primero con Numpy
         if len(numpy_window) < numpy_window_bytes:
             numpy = None
         else:
-            filename = f"numpy_window_{self.counter_numpy_wav}.wav"
-            with wave.open(filename, "wb") as wav_fle:
-                    wav_fle.setnchannels(1)  # que sea mono
-                    wav_fle.setsampwidth(2)  # int16 : osea 2 bytes
-                    wav_fle.setframerate(SAMPLE_RATE_DEFAULT)  # 8000 Hz
-                    wav_fle.writeframes(numpy_window)  # escribimos los bytes de audio de la ventana de numpy
-            self.counter_numpy_wav += 1
             
             # Ejecutamos Numpy
             numpy = self.detect_numpy(numpy_window)
@@ -438,13 +436,6 @@ class CascadaAMDClass:
         if len(goertzel_window) < goertzel_window_bytes:
             goertzel = None
         else:
-            filename = f"goertzel_window_{self.counter_goertzel_wav}.wav"
-            with wave.open(filename, "wb") as wav_fle:
-                    wav_fle.setnchannels(1)  # que sea mono
-                    wav_fle.setsampwidth(2)  # int16 : osea 2 bytes
-                    wav_fle.setframerate(SAMPLE_RATE_DEFAULT)  # 8000 Hz
-                    wav_fle.writeframes(goertzel_window)  # escribimos los bytes de audio de la ventana de numpy
-            self.counter_goertzel_wav += 1
             
             goertzel = self.detect_goertzel(goertzel_window, SAMPLE_RATE_DEFAULT)
 
@@ -452,26 +443,13 @@ class CascadaAMDClass:
         if len(vad_window) < vad_window_bytes:
             webrtcvad_score = None
         else:
-            filename = f"webrtcvad_window_{self.counter_vad_wav}.wav"
-            with wave.open(filename, "wb") as wav_fle:
-                    wav_fle.setnchannels(1)  # que sea mono
-                    wav_fle.setsampwidth(2)  # int16 : osea 2 bytes
-                    wav_fle.setframerate(SAMPLE_RATE_DEFAULT)  # 8000 Hz
-                    wav_fle.writeframes(vad_window)  # escribimos los bytes de audio de la ventana de numpy
-            self.counter_vad_wav += 1
+            
             webrtcvad_score = self.detect_webrtcvad(vad_window, self.vad, SAMPLE_RATE_DEFAULT)
 
         # Detectamos luego con F0 Pitch
         if len(f0_window) < f0_window_bytes:
             f0_pitch = None
         else:
-            filename = f"f0_window_{self.counter_f0_wav}.wav"
-            with wave.open(filename, "wb") as wav_fle:
-                    wav_fle.setnchannels(1)  # que sea mono
-                    wav_fle.setsampwidth(2)  # int16 : osea 2 bytes
-                    wav_fle.setframerate(SAMPLE_RATE_DEFAULT)  # 8000 Hz
-                    wav_fle.writeframes(f0_window)  # escribimos los bytes de audio de la ventana de numpy
-            self.counter_f0_wav += 1
 
             f0_pitch = self.detect_f0_pitch(f0_window)
 
