@@ -185,7 +185,7 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
         print(result)
         
         # Pasamos resultados cada que se actualiza el buffer
-        await websocket.send_json({"type": "parcial", ** result })
+        await websocket.send_json({"type": "analysis", ** result })
 
 
         # Si ya tenemos la decision de buzon o humano, llamamos
