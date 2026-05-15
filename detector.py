@@ -496,42 +496,44 @@ class CascadaAMDClass:
             self.decision = "humano"
         elif self.score_buzon >= BUZON_THRESHOLD:
             self.decision = "buzón"
-
+    
         return {
             # Resultados de la cascada
             "decision": self.decision,
 
-            "scores":{
+            "scores": {
                 "human": self.score_human,
                 "buzon": self.score_buzon
             },
-            
+
             "models": {
                 # Resultados de los modelos
-                "numpy": numpy,
-                "goertzel": goertzel,
-                "webrtcvad": webrtcvad_score,
-                "f0_pitch": f0_pitch
+                "rms": {
+                    "value": numpy
+                },
+                "goertzel": {
+                    "value": goertzel
+                },
+                "vad": {
+                    "value": webrtcvad_score
+                },
+                "f0": {
+                    "value": f0_pitch
+                }
+            },
+            # Resultados de Humano y Buzon por modelo
+            "contrib_human": {
+                "rms": dh_numpy,
+                "goertzel": dh_goertzel,
+                "vad": dh_webrtcvad,
+                "f0": dh_f0_pitch
             },
 
-            "weights":{
-                # Resultados de Humano y Buzon por modelo
-                "numpy":{
-                    "db_numpy": db_numpy,
-                    "dh_numpy": dh_numpy,
-                },
-                "goertzel":{
-                    "db_goertzel": db_goertzel,
-                    "dh_goertzel": dh_goertzel,
-                },
-                "webrtcvad":{
-                    "db_webrtcvad": db_webrtcvad,
-                    "dh_webrtcvad": dh_webrtcvad,
-                },
-                "f0_pitch":{
-                    "db_f0_pitch": db_f0_pitch,
-                    "dh_f0_pitch": dh_f0_pitch,
-                },
+            "contrib_buzon": {
+                "rms": db_numpy,
+                "goertzel": db_goertzel,
+                "vad": db_webrtcvad,
+                "f0": db_f0_pitch
             }
         }
 
