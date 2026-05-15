@@ -417,7 +417,7 @@ class CascadaAMDClass:
         if len(numpy_window) < numpy_window_bytes:
             numpy = None
         else:
-            with wave.open("numpy _window.raw", "wb") as wav_fle:
+            with wave.open("numpy _window.wav", "wb") as wav_fle:
                     wav_fle.setnchannels(1)  # que sea mono
                     wav_fle.setsampwidth(2)  # int16 : osea 2 bytes
                     wav_fle.setframerate(SAMPLE_RATE_DEFAULT)  # 8000 Hz
