@@ -261,6 +261,9 @@ class CascadaAMDClass:
         self.pitch_detector.set_unit("Hz")
         self.pitch_detector.set_silence(-40)
 
+        # Contador para wavs de numpy 40 ms
+        self.counter_numpy_wav=0
+
 
     # Devuelve energia de la ventana de audio usando numpy
     def detect_numpy(self, audio_window: bytes) -> float:
@@ -417,11 +420,13 @@ class CascadaAMDClass:
         if len(numpy_window) < numpy_window_bytes:
             numpy = None
         else:
-            with wave.open("numpy _window.wav", "wb") as wav_fle:
+            filename = f"numpy_window_{self.counter_numpy_wav}.wav"
+            with wave.open(filename, "wb") as wav_fle:
                     wav_fle.setnchannels(1)  # que sea mono
                     wav_fle.setsampwidth(2)  # int16 : osea 2 bytes
                     wav_fle.setframerate(SAMPLE_RATE_DEFAULT)  # 8000 Hz
                     wav_fle.writeframes(numpy_window)  # escribimos los bytes de audio de la ventana de numpy
+            self.counter_numpy_wav += 1
             
             #imprimimos en logs por formula cuantos ms fueron
             duration_ms = (len(numpy_window) / (8000 * 2)) * 1000
