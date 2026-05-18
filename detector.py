@@ -18,6 +18,10 @@ import uvicorn
 # para guardar archivos como wav
 import wave
 
+# Liberias para auditoria de hora
+from datetime import datetime
+import time
+
 
 WHISPER_MODEL = WhisperModel(
     "tiny",
@@ -167,6 +171,8 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
 
     cascada = CascadaAMDClass()
 
+    started_at = time.time()
+    contador_chunk = 0
 
     while True:
 
@@ -182,10 +188,21 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
         # Jalamos funcion de analisis para una llamada
         result = cascada.analize_audio()
 
+        contador_chunk+=1
+        
+        elapsed_ms = round((time.time() - started_at) * 1000, 2)
+
+        event_ts = datetime.now().isoformat()
+
         print(result)
         
         # Pasamos resultados cada que se actualiza el buffer
-        await websocket.send_json({"type": "analysis", ** result })
+        await websocket.send_json({"type": "analysis",
+            "ts": event_ts,
+            "chunk": contador_chunk,
+            "elapsed_ms": elapsed_ms,
+            "buffer_bytes": len(cascada.ring_buffer),
+            ** result })
 
 
         # Si ya tenemos la decision de buzon o humano, llamamos
