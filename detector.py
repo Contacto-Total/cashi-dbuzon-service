@@ -209,6 +209,8 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
             **result
         }
 
+        payload_analisis["verdict"] = payload_analisis.pop("decision")
+
         print(payload_analisis)
 
         # Pasamos por websocket resultados
@@ -217,7 +219,7 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
 
 
         # Si ya tenemos la decision de buzon o humano, llamamos
-        if result["decision"] in ["humano", "buzón"]:
+        if result["decision"] in ["humano", "buzon"]:
             payload_decision={
                 "type": "decision",
                 "source": "dsp",
@@ -229,10 +231,10 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
                     "scores": result["scores"],
                     "models": result["models"],
                     "contrib_human": result["contrib_human"],
-                    "contrib_buzon": result["contrib_buzon"]
-                },
-
-                **result
+                    "contrib_buzon": result["contrib_buzon"],
+                    "decided_at_chunk": contador_chunk,
+                    "decided_at_ms": elapsed_ms
+                }
             }
 
             print(payload_decision)
@@ -261,10 +263,10 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
                 "decision": {
                     "result": whisper_result["decision"],
                     "reason": whisper_result.get("reason"),
-                    "transcription": whisper_result.get("transcripcion")
-                },
-
-                **whisper_result
+                    "transcription": whisper_result.get("transcripcion"),
+                    "decided_at_chunk": contador_chunk,
+                    "decided_at_ms": elapsed_ms
+                }
             }
 
             print(payload_whisper)
@@ -558,7 +560,7 @@ class CascadaAMDClass:
         if self.score_human >= HUMAN_THRESHOLD:
             self.decision = "humano"
         elif self.score_buzon >= BUZON_THRESHOLD:
-            self.decision = "buzón"
+            self.decision = "buzon"
     
         return {
             # Resultados de la cascada
@@ -640,7 +642,7 @@ class CascadaAMDClass:
         for keyword in MACHINE_KEYWORDS:
 
             if keyword in text:
-                return {"decision": "buzón", "reason": f"se detecto la palabra clave '{keyword}' en la transcripcion",
+                return {"decision": "buzon", "reason": f"se detecto la palabra clave '{keyword}' en la transcripcion",
                         "transcripcion": text}
         
         # Iteramos para buscar las keywods de humano luego
