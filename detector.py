@@ -201,7 +201,7 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
                     "contrib_human": result["contrib_human"],
                     "contrib_buzon": result["contrib_buzon"]
                 }
-                ** result })
+                **result })
 
             print("Decision tomada, terminando analisis de audio.")
             await websocket.close()
@@ -222,7 +222,7 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
                     "reason": whisper_result.get["reason"],
                     "transcription": whisper_result.get["transcripcion"]
                 }
-            ** whisper_result })
+            **whisper_result })
 
             await websocket.close()
             break
