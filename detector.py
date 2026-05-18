@@ -194,22 +194,35 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
 
         event_ts = datetime.now().isoformat()
 
-        print(result)
-        
-        # Pasamos resultados cada que se actualiza el buffer
-        await websocket.send_json({"type": "analysis",
+        # Base para timestamp de eventos
+        event_base = {
             "ts": event_ts,
             "chunk": contador_chunk,
             "elapsed_ms": elapsed_ms,
-            "buffer_bytes": len(cascada.ring_buffer),
-            ** result })
+            "buffer_bytes": len(cascada.ring_buffer)
+        }
+
+        # Payload para el analisis
+        payload_analisis={
+            "type": "analysis",
+            **event_base,
+            **result
+        }
+
+        print(payload_analisis)
+
+        # Pasamos por websocket resultados
+        await websocket.send_json(payload_analisis)
+
 
 
         # Si ya tenemos la decision de buzon o humano, llamamos
         if result["decision"] in ["humano", "buzón"]:
-            await websocket.send_json({
-                "type":"decision",
-                "source":"dsp",
+            payload_decision={
+                "type": "decision",
+                "source": "dsp",
+
+                **event_base,
 
                 "decision": {
                     "result": result["decision"],
@@ -218,11 +231,20 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
                     "contrib_human": result["contrib_human"],
                     "contrib_buzon": result["contrib_buzon"]
                 },
-                **result })
 
-            print("Decision tomada, terminando analisis de audio.")
+                **result
+            }
+
+            print(payload_decision)
+            
+            await websocket.send_json(payload_decision)
+
+            print("Desicion tomada, analisis terminado")
+
             await websocket.close()
             break
+
+
         
         # Si no tenemos la certeza, pasamos a Whisper para que transcriba y clasifique el audio acumulado en el buffer
         if len(cascada.ring_buffer) >= LIMIT_BUFFER_BYTES:
@@ -230,16 +252,24 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
 
             whisper_result = cascada.detect_whisper()
 
-            await websocket.send_json({
-                "type":"decision",
+            payload_whisper={
+                "type": "decision",
                 "source": "whisper",
+
+                **event_base,
 
                 "decision": {
                     "result": whisper_result["decision"],
                     "reason": whisper_result.get("reason"),
                     "transcription": whisper_result.get("transcripcion")
                 },
-            **whisper_result })
+
+                **whisper_result
+            }
+
+            print(payload_whisper)
+
+            await websocket.send_json(payload_whisper)
 
             await websocket.close()
             break
