@@ -1,1 +1,35 @@
--r requirements-runtime.txt
+# ============================================================
+# Cashi AMD - dbuzon service | Dependencias de PRODUCCION
+# Server SIN GPU -> PyTorch build CPU (nunca CUDA)
+# Reconstruir venv:
+#   python3 -m venv venv && venv/bin/pip install -r requirements.txt
+# Reproduccion EXACTA igual a prod: usar requirements-lock.txt
+# ============================================================
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+# --- API / Web ---
+fastapi==0.115.0
+uvicorn==0.30.6
+websockets==12.0
+python-multipart==0.0.9
+pydantic==2.8.2
+
+# --- Audio / senal ---
+numpy==1.26.4
+scipy==1.13.1
+soundfile==0.12.1
+aubio==0.4.9
+webrtcvad==2.0.10
+
+# --- VAD (Silero por ONNX) + ASR ---
+onnxruntime==1.18.1
+silero-vad==6.2.1
+faster-whisper==1.0.3
+
+# --- PyTorch CPU (lo arrastra silero-vad; sin CUDA) ---
+torch==2.11.0+cpu
+torchaudio==2.11.0+cpu
+
+# --- Descarga de modelos ---
+huggingface_hub==1.11.0
+requests==2.33.1

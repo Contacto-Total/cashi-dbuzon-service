@@ -1,4 +1,0 @@
--r requirements-runtime.txt
-scikit-learn
-resemblyzer
-joblib
