@@ -106,7 +106,7 @@ def score_webrtcvad (webrtcvad_score: float) -> tuple [float, float]:
         return (0.0, 0.0)
     
     if webrtcvad_score < 0.2:
-        return (0.0, 0.5)
+        return (0.0, 0.05)
     elif (webrtcvad_score >= 0.2) and (webrtcvad_score < 0.5):
         return (0.2, -0.1)
     elif (webrtcvad_score >= 0.5) and (webrtcvad_score < 0.8):
