@@ -81,7 +81,7 @@ def score_numpy (numpy_rms: float) -> tuple [float, float]:
         return (0.0, 0.0)
     
     if numpy_rms < 0.005:
-        return (-0.2, 0.0)
+        return (-0.2, -0.05)
     elif (numpy_rms >= 0.005) and (numpy_rms < 0.01):
         return (0.0, 0.5)
     else:
@@ -92,9 +92,9 @@ def score_goertzel (goertzel_score: float) -> tuple [float, float]:
         return (0.0, 0.0)
     
     if goertzel_score < 0.3:
-        return (0.1, -0.2)
+        return (0.1, -0.0)
     elif (goertzel_score >= 0.3) and (goertzel_score < 0.5):
-        return (-0.1, 0.3)
+        return (-0.1, 0.2)
     elif (goertzel_score >= 0.5) and (goertzel_score < 0.7):
         return (-0.2, 0.6)
     else:
