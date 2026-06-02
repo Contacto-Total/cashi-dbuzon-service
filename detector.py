@@ -247,7 +247,10 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
             break
 
 
-        
+        """
+
+        # COMENTAOD PARA QUE NO PASE A WHISPER PARA PRUEBAS
+
         # Si no tenemos la certeza, pasamos a Whisper para que transcriba y clasifique el audio acumulado en el buffer
         if len(cascada.ring_buffer) >= LIMIT_BUFFER_BYTES:
             print("Fallback a Whisper por buffer lleno sin decision clara.")
@@ -275,6 +278,7 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
 
             await websocket.close()
             break
+        """
 
         print(f"Chunk recibido de: {len(chunk)}")
 
