@@ -98,7 +98,7 @@ def score_goertzel (goertzel_score: float) -> tuple [float, float]:
     elif (goertzel_score >= 0.5) and (goertzel_score < 0.7):
         return (-0.2, 0.6)
     else:
-        return (-0.3, 1.0)
+        return (-0.1, 0.3)
     
 
 def score_webrtcvad (webrtcvad_score: float) -> tuple [float, float]:
@@ -380,8 +380,11 @@ class CascadaAMDClass:
         if total_energy <= 1e-12:
             return 0.0
 
-        # Ratio de energia en frecuencias objetivo vs energia total
-        ratio = energy_target / total_energy    
+        # Ratio de energia en frecuencias objetivo vs energia total.
+        # Normalizamos por N (Parseval: Sum|X[k]|^2 = N * Sum x[n]^2), si no el
+        # "ratio" escala con N (~O(N)) y se dispara a decenas/cientos en vez de 0-1.
+        n = len(samples_f32)
+        ratio = energy_target / (n * total_energy)
 
         return float(ratio)
 
