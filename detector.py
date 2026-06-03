@@ -112,7 +112,7 @@ def score_webrtcvad (webrtcvad_score: float) -> tuple [float, float]:
     elif (webrtcvad_score >= 0.5) and (webrtcvad_score < 0.8):
         return (0.3, -0.2)
     else:
-        return (0.5, -0.3)
+        return (0.1, 0.0)
     
 
 def score_f0_pitch (f0_pitch_score: float) -> tuple [float, float]:
@@ -122,7 +122,7 @@ def score_f0_pitch (f0_pitch_score: float) -> tuple [float, float]:
     if f0_pitch_score < 80:
         return (0.0, 0.0)
     elif (f0_pitch_score >= 80) and (f0_pitch_score < 300):
-        return (0.7, -0.4)
+        return (0.2, -0.05)
     elif (f0_pitch_score >= 300) and (f0_pitch_score < 900):
         return (0.1, 0.1)
     elif (f0_pitch_score >= 900) and (f0_pitch_score < 1600):
