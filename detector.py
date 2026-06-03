@@ -92,7 +92,7 @@ def score_goertzel (goertzel_score: float) -> tuple [float, float]:
         return (0.0, 0.0)
     
     if goertzel_score < 0.3:
-        return (0.1, -0.0)
+        return (0.0, 0.0)
     elif (goertzel_score >= 0.3) and (goertzel_score < 0.5):
         return (-0.1, 0.2)
     elif (goertzel_score >= 0.5) and (goertzel_score < 0.7):
@@ -110,9 +110,9 @@ def score_webrtcvad (webrtcvad_score: float) -> tuple [float, float]:
     elif (webrtcvad_score >= 0.2) and (webrtcvad_score < 0.5):
         return (0.2, -0.1)
     elif (webrtcvad_score >= 0.5) and (webrtcvad_score < 0.8):
-        return (0.3, -0.2)
+        return (0.0, 0.0)
     else:
-        return (0.1, 0.0)
+        return (-0.1, 0.2)
     
 
 def score_f0_pitch (f0_pitch_score: float) -> tuple [float, float]:
