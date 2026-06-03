@@ -81,7 +81,7 @@ def score_numpy (numpy_rms: float) -> tuple [float, float]:
         return (0.0, 0.0)
     
     if numpy_rms < 0.005:
-        return (-0.2, -0.05)
+        return (0.0, 0.0)
     elif (numpy_rms >= 0.005) and (numpy_rms < 0.01):
         return (0.0, 0.2)
     else:
@@ -538,6 +538,15 @@ class CascadaAMDClass:
 
         # Score de humano y buzón usando WebRTC VAD
         dh_webrtcvad, db_webrtcvad = score_webrtcvad(webrtcvad_score)
+        
+        # ------------------------------------ #
+        # PROBAR PARA VER SI SE TOMA EN CUENTA #
+        # ------------------------------------ #
+        # Gate de energia: no hay voz sin energia. Si el rms esta en silencio,
+        # el VAD no es confiable (falsos positivos) -> no cuenta este chunk.
+        if numpy is None or numpy < 0.005:
+            dh_webrtcvad, db_webrtcvad = 0.0, 0.0
+        # ------------------------------------ #
 
         # Score de humano y buzón usando F0 Pitch
         dh_f0_pitch, db_f0_pitch = score_f0_pitch(f0_pitch)
