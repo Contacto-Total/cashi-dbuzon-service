@@ -283,8 +283,8 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
         print(f"Chunk recibido de: {len(chunk)}")
 
 # Definimos pesos por modelos primero
-weight_numpy = 0.15
-weight_goertzel = 0.30
+weight_numpy = 0.30
+weight_goertzel = 0.15
 weight_webrtcvad = 0.25
 weight_f0_pitch = 0.30
 
