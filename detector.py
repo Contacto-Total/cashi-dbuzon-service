@@ -113,8 +113,31 @@ def score_webrtcvad (webrtcvad_score: float) -> tuple [float, float]:
         return (0.0, 0.0)
     else:
         return (-0.1, 0.2)
-    
 
+
+# -------------------------------------------------------
+# SCORING DE PITCH POR VENTANA DE 500 MS CONs DESVIACION 
+# -------------------------------------------------------
+def score_f0_pitch (f0_pitch_score: float) -> tuple [float, float]:
+    if f0_pitch_score is None:
+        return (0.0, 0.0)
+
+    if f0_pitch_score < 40:
+        return (-0.05, 0.1)
+    elif (f0_pitch_score >= 40) and (f0_pitch_score < 70):
+        return (0.0, 0.05)
+    elif (f0_pitch_score >= 70) and (f0_pitch_score < 100):
+        return (0.0, 0.0)
+    elif (f0_pitch_score >= 100) and (f0_pitch_score < 150):
+        return (0.1, -0.05)
+    else:
+        return (0.15, -0.1)
+
+
+# -------------------------------------------------------
+# SCORING DE PITCH POR VENTANA DE 100 MS SIN DESVIACION 
+# -------------------------------------------------------
+"""
 def score_f0_pitch (f0_pitch_score: float) -> tuple [float, float]:
     if f0_pitch_score is None:
         return (0.0, 0.0)
@@ -129,7 +152,8 @@ def score_f0_pitch (f0_pitch_score: float) -> tuple [float, float]:
         return (-0.3, 0.7)
     else:
         return (0.0, 0.2)
-
+    """
+        
 # Funcion para Goertzel
 def gc(samples, sample_rate, target_freq):
 
@@ -294,7 +318,7 @@ weight_f0_pitch = 0.30
 Numpy_window_ms = 40
 Goertzel_window_ms = 60 # 100 ms
 VAD_window_ms = 80 # 100 ms
-F0_window_ms = 100
+F0_window_ms = 500
 whisper_window_ms = 1500
 
 # Convertimos ms a bytes para cada modelo
@@ -440,7 +464,39 @@ class CascadaAMDClass:
         return float(score)
 
 
+    # -----------------------------------------------------
+    #  CALCULO EN BASE A BUFFER DE 500 MS CON LA DESVIACION 
+    # -----------------------------------------------------
+    def detect_f0_pitch(self,  audio_windows: bytes):
+        # PCM (codec) int16 -> float32 normalizado
+        samples = np.frombuffer(audio_windows, dtype=np.int16)
+
+        if len(samples) == 0:
+            return 0.0
+        
+        # Normalizamos
+        samples32 = samples.astype(np.float32) / 32768.0
+
+        frame=800
+        step=400
+
+        pitches = []
+        for i in range(0, len(samples32)-frame + 1, step):
+            p = float(self.pitch_detector(samples32[i:i+frame])[0])
+            if 70 <= p <= 400:  # Filtramos pitches fuera del rango típico de voz humana
+                pitches.append(p)
+
+        if len(pitches) < 4:
+            return None
+        
+        return float(np.std(pitches))
+
+
+    # -----------------------------------------------------
+    #  CALCULO EN BASE A CADA CHUNKS DE LA VENTANA DE 100 MS
+    # -----------------------------------------------------
     # Devuelve la frecuencia fundamental (F0) de la ventana de audio usando Aubio
+    """
     def detect_f0_pitch(self,  audio_windows: bytes):
 
         # PCM (codec) int16 -> float32 normalizado
@@ -456,7 +512,7 @@ class CascadaAMDClass:
         pitch = float(self.pitch_detector(samples32)[0])
 
         return pitch
-
+    """
 
 
     #--------------------------------------------------------
