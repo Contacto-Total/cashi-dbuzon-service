@@ -70,7 +70,7 @@ BUZON_FREQ_TOLERANCE_HZ = 30.0
 # LIMITE DE PUNTAJE PARA DECIDIR SI ES HUMANO
 HUMAN_THRESHOLD = 3.0
 # LIMITE DE PUNTAJE PARA DECIDIR SI ES BUZON
-BUZON_THRESHOLD = 2.0
+BUZON_THRESHOLD = 2.5
 
 # VARIABLE DE AGRESIVIDAD DE WEBRTCVAD
 VAR_AGRESSIVENESS = 2
@@ -81,7 +81,9 @@ def score_numpy (numpy_rms: float) -> tuple [float, float]:
         return (0.0, 0.0)
     
     if numpy_rms > 0.04:
-        return (-0.1, 0.1)
+        return (-0.15, 0.25)
+    elif (numpy_rms >= 0.015):
+        return (-0.05, 0.1)
     else:
         return (0.0, 0.0)
     
@@ -89,21 +91,41 @@ def score_goertzel (goertzel_score: float) -> tuple [float, float]:
     if goertzel_score is None:
         return (0.0, 0.0)
     
-    if goertzel_score > 0.5:
-        return (-0.1, 0.45)
-    return (0.0, 0.0)
+    if goertzel_score > 0.45:
+        return (-0.2, 0.4)
+    else:
+        return (0.0, 0.0)
+    
 
 def score_webrtcvad (webrtcvad_score: float) -> tuple [float, float]:
     if webrtcvad_score is None:
         return (0.0, 0.0)
-    if webrtcvad_score < 0.5:
-        return (0.25, -0.2)
-    elif (webrtcvad_score >= 0.5) and (webrtcvad_score < 0.78):
+    
+    if webrtcvad_score < 0.3:
+        return (0.45, -0.3)
+    elif (webrtcvad_score >= 0.3) and (webrtcvad_score < 0.55):
+        return (0.2, -0.15)
+    elif (webrtcvad_score >= 0.55) and (webrtcvad_score <= 0.75):
         return (0.0, 0.0)
     else:
-        return (-0.1, 0.25)
+        return (-0.25, 0.45)
 
+# -------------------------------------------------------
+# SCORING DE PITCH POR VENTANA DE 100 MS SIN DESVIACION 
+# -------------------------------------------------------
+def score_f0_pitch (f0_pitch_score: float) -> tuple [float, float]:
+    """
+    if f0_pitch_score is None or f0_pitch_score > 400:
+        return (0.0, 0.0)
 
+    if f0_pitch_score < 12:
+        return (-0.05, 0.1)
+    elif f0_pitch_score > 45:
+        return (0.15, -0.1)
+    else:
+        return (0.0, 0.0)
+    """
+    return (0.0, 0.0)
 # -------------------------------------------------------
 # SCORING DE PITCH POR VENTANA DE 500 MS CONs DESVIACION 
 # -------------------------------------------------------
@@ -124,22 +146,7 @@ def score_f0_pitch (f0_pitch_score: float) -> tuple [float, float]:
         return (0.15, -0.1)
     """
 
-# -------------------------------------------------------
-# SCORING DE PITCH POR VENTANA DE 100 MS SIN DESVIACION 
-# -------------------------------------------------------
-def score_f0_pitch (f0_pitch_score: float) -> tuple [float, float]:
-    return (0.0, 0.0)
-    """"
-    if f0_pitch_score is None or f0_pitch_score > 400:
-        return (0.0, 0.0)
-    
-    if f0_pitch_score < 70:
-        return (-0.25, 0.3)
-    elif (f0_pitch_score >= 70) and (f0_pitch_score < 110):
-        return (0.0, 0.0)
-    else:
-        return (0.35, -0.25)
-    """
+
         
 # Funcion para Goertzel
 def gc(samples, sample_rate, target_freq):
