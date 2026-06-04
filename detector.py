@@ -80,10 +80,10 @@ def score_numpy (numpy_rms: float) -> tuple [float, float]:
     if numpy_rms is None or numpy_rms < 0.005:
         return (0.0, 0.0)
     
-    if numpy_rms > 0.04:
-        return (-0.15, 0.25)
-    elif (numpy_rms >= 0.015):
-        return (-0.05, 0.1)
+    if numpy_rms > 0.05:
+        return (-0.1, 0.2)
+    elif (numpy_rms > 0.02):
+        return (0.15, -0.1)
     else:
         return (0.0, 0.0)
     
@@ -114,17 +114,12 @@ def score_webrtcvad (webrtcvad_score: float) -> tuple [float, float]:
 # SCORING DE PITCH POR VENTANA DE 100 MS SIN DESVIACION 
 # -------------------------------------------------------
 def score_f0_pitch (f0_pitch_score: float) -> tuple [float, float]:
-    """
-    if f0_pitch_score is None or f0_pitch_score > 400:
+
+    if f0_pitch_score is None:
         return (0.0, 0.0)
 
-    if f0_pitch_score < 12:
-        return (-0.05, 0.1)
-    elif f0_pitch_score > 45:
-        return (0.15, -0.1)
-    else:
-        return (0.0, 0.0)
-    """
+    if f0_pitch_score > 45:
+        return (0.25, -0.15)
     return (0.0, 0.0)
 # -------------------------------------------------------
 # SCORING DE PITCH POR VENTANA DE 500 MS CONs DESVIACION 
