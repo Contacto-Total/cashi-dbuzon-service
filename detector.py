@@ -86,7 +86,7 @@ def score_numpy (numpy_rms: float) -> tuple [float, float]:
         return (0.0, 0.0)
     else:
     """
-    return (0., 0.0)
+    return (0.0, 0.0)
     
 def score_goertzel (goertzel_score: float) -> tuple [float, float]:
     if goertzel_score is None:
