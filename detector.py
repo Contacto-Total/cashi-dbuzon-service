@@ -354,6 +354,10 @@ class CascadaAMDClass:
         # Historial de F0 para calcular desviacion
         self.f0_history = []
 
+        # VARIABLES PARA ANALIZAR EL ACUMULADO DE VAD DE TODA LA LLAMADA
+        self.vad_sum = 0.0
+        self.vad_count = 0
+
 
     # Devuelve energia de la ventana de audio usando numpy
     def detect_numpy(self, audio_window: bytes) -> float:
@@ -541,6 +545,7 @@ class CascadaAMDClass:
         # Aqui empieza la cascada de deteccion
         #--------------------------------------------------------
 
+        """
         filename = f"buffer_window_{self.counter_buffer}.wav"
         with wave.open(filename, "wb") as wav_fle:
                     wav_fle.setnchannels(1)  # que sea mono
@@ -548,6 +553,7 @@ class CascadaAMDClass:
                     wav_fle.setframerate(SAMPLE_RATE_DEFAULT)  # 8000 Hz
                     wav_fle.writeframes(self.ring_buffer)  # escribimos los bytes de audio de la ventana de numpy
         self.counter_buffer += 1
+        """
 
         # Detectamos Primero con Numpy
         if len(numpy_window) < numpy_window_bytes:
@@ -565,11 +571,17 @@ class CascadaAMDClass:
             goertzel = self.detect_goertzel(goertzel_window, SAMPLE_RATE_DEFAULT)
 
         # Detectamos luego con WebRTC VAD
+
         if len(vad_window) < vad_window_bytes:
             webrtcvad_score = None
-        else:
-            
+        else:            
             webrtcvad_score = self.detect_webrtcvad(vad_window, self.vad, SAMPLE_RATE_DEFAULT)
+        
+        v = webrtcvad_score if webrtcvad_score is not None else 0.0
+        if v > 0 or self.vad.count > 0:
+            self.vad_sum += v
+            self.vad_count += 1
+        vad_ratio = self.vad_sum / self.vad_count if self.vad_count >= 40 else None
 
         # Detectamos luego con F0 Pitch
         if len(f0_window) < f0_window_bytes:
@@ -596,15 +608,17 @@ class CascadaAMDClass:
         dh_goertzel, db_goertzel = score_goertzel(goertzel)
 
         # Score de humano y buzón usando WebRTC VAD
-        dh_webrtcvad, db_webrtcvad = score_webrtcvad(webrtcvad_score)
+        dh_webrtcvad, db_webrtcvad = score_webrtcvad(vad_ratio)
         
         # ------------------------------------ #
         # PROBAR PARA VER SI SE TOMA EN CUENTA #
         # ------------------------------------ #
         # Gate de energia: no hay voz sin energia. Si el rms esta en silencio,
         # el VAD no es confiable (falsos positivos) -> no cuenta este chunk.
+        """
         if numpy is None or numpy < 0.005:
             dh_webrtcvad, db_webrtcvad = 0.0, 0.0
+        """
         # ------------------------------------ #
 
         # Score de humano y buzón usando F0 Pitch
