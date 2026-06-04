@@ -578,7 +578,7 @@ class CascadaAMDClass:
             webrtcvad_score = self.detect_webrtcvad(vad_window, self.vad, SAMPLE_RATE_DEFAULT)
         
         v = webrtcvad_score if webrtcvad_score is not None else 0.0
-        if v > 0 or self.vad.count > 0:
+        if v > 0 or self.vad_count > 0:
             self.vad_sum += v
             self.vad_count += 1
         vad_ratio = self.vad_sum / self.vad_count if self.vad_count >= 40 else None
