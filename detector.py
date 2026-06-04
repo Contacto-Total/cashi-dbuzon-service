@@ -83,7 +83,7 @@ def score_numpy (numpy_rms: float) -> tuple [float, float]:
     if numpy_rms < 0.005:
         return (0.0, 0.0)
     elif (numpy_rms >= 0.005) and (numpy_rms < 0.01):
-        return (0.0, 0.2)
+        return (0.0, 0.0)
     else:
         return (0.1, -0.1)
     
@@ -112,7 +112,7 @@ def score_webrtcvad (webrtcvad_score: float) -> tuple [float, float]:
     elif (webrtcvad_score >= 0.5) and (webrtcvad_score < 0.8):
         return (0.0, 0.0)
     else:
-        return (-0.1, 0.2)
+        return (0.05, 0.0)
 
 
 # -------------------------------------------------------
@@ -317,7 +317,7 @@ weight_f0_pitch = 0.30
 Numpy_window_ms = 40
 Goertzel_window_ms = 60 # 100 ms
 VAD_window_ms = 80 # 100 ms
-F0_window_ms = 500
+F0_window_ms = 100
 whisper_window_ms = 1500
 
 # Convertimos ms a bytes para cada modelo
