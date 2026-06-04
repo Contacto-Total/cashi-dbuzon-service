@@ -89,8 +89,9 @@ def score_goertzel (goertzel_score: float) -> tuple [float, float]:
     if goertzel_score is None:
         return (0.0, 0.0)
     
+    if goertzel_score > 0.5:
+        return (-0.1, 0.45)
     return (0.0, 0.0)
-    
 
 def score_webrtcvad (webrtcvad_score: float) -> tuple [float, float]:
     if webrtcvad_score is None:
@@ -127,15 +128,18 @@ def score_f0_pitch (f0_pitch_score: float) -> tuple [float, float]:
 # SCORING DE PITCH POR VENTANA DE 100 MS SIN DESVIACION 
 # -------------------------------------------------------
 def score_f0_pitch (f0_pitch_score: float) -> tuple [float, float]:
+    return (0.0, 0.0)
+    """"
     if f0_pitch_score is None or f0_pitch_score > 400:
         return (0.0, 0.0)
-
+    
     if f0_pitch_score < 70:
         return (-0.25, 0.3)
     elif (f0_pitch_score >= 70) and (f0_pitch_score < 110):
         return (0.0, 0.0)
     else:
         return (0.35, -0.25)
+    """
         
 # Funcion para Goertzel
 def gc(samples, sample_rate, target_freq):
