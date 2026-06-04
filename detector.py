@@ -83,9 +83,9 @@ def score_numpy (numpy_rms: float) -> tuple [float, float]:
     if numpy_rms < 0.005:
         return (0.0, 0.0)
     elif (numpy_rms >= 0.005) and (numpy_rms < 0.01):
-        return (0.0, 0.2)
+        return (0.0, 0.0)
     else:
-        return (0.1, -0.1)
+        return (0.1, -0.05)
     
 def score_goertzel (goertzel_score: float) -> tuple [float, float]:
     if goertzel_score is None:
@@ -94,9 +94,9 @@ def score_goertzel (goertzel_score: float) -> tuple [float, float]:
     if goertzel_score < 0.3:
         return (0.0, 0.0)
     elif (goertzel_score >= 0.3) and (goertzel_score < 0.5):
-        return (-0.1, 0.2)
+        return (00.0, 0.0)
     elif (goertzel_score >= 0.5) and (goertzel_score < 0.7):
-        return (-0.2, 0.6)
+        return (-0.05, 0.15)
     else:
         return (-0.1, 0.3)
     
@@ -106,18 +106,19 @@ def score_webrtcvad (webrtcvad_score: float) -> tuple [float, float]:
         return (0.0, 0.0)
     
     if webrtcvad_score < 0.2:
-        return (0.0, 0.05)
-    elif (webrtcvad_score >= 0.2) and (webrtcvad_score < 0.5):
-        return (0.2, -0.1)
-    elif (webrtcvad_score >= 0.5) and (webrtcvad_score < 0.8):
         return (0.0, 0.0)
+    elif (webrtcvad_score >= 0.2) and (webrtcvad_score < 0.5):
+        return (0.15, -0.05)
+    elif (webrtcvad_score >= 0.5) and (webrtcvad_score < 0.8):
+        return (0.1, 0.0)
     else:
-        return (-0.1, 0.2)
+        return (0.05, 0.2)
 
 
 # -------------------------------------------------------
 # SCORING DE PITCH POR VENTANA DE 500 MS CONs DESVIACION 
 # -------------------------------------------------------
+"""
 def score_f0_pitch (f0_pitch_score: float) -> tuple [float, float]:
     if f0_pitch_score is None:
         return (0.0, 0.0)
@@ -132,12 +133,11 @@ def score_f0_pitch (f0_pitch_score: float) -> tuple [float, float]:
         return (0.1, -0.05)
     else:
         return (0.15, -0.1)
-
+    """
 
 # -------------------------------------------------------
 # SCORING DE PITCH POR VENTANA DE 100 MS SIN DESVIACION 
 # -------------------------------------------------------
-"""
 def score_f0_pitch (f0_pitch_score: float) -> tuple [float, float]:
     if f0_pitch_score is None:
         return (0.0, 0.0)
@@ -152,7 +152,6 @@ def score_f0_pitch (f0_pitch_score: float) -> tuple [float, float]:
         return (-0.3, 0.7)
     else:
         return (0.0, 0.2)
-    """
         
 # Funcion para Goertzel
 def gc(samples, sample_rate, target_freq):
@@ -467,6 +466,7 @@ class CascadaAMDClass:
     # -----------------------------------------------------
     #  CALCULO EN BASE A BUFFER DE 500 MS CON LA DESVIACION 
     # -----------------------------------------------------
+    """
     def detect_f0_pitch(self,  audio_windows: bytes):
         # PCM (codec) int16 -> float32 normalizado
         samples = np.frombuffer(audio_windows, dtype=np.int16)
@@ -490,13 +490,13 @@ class CascadaAMDClass:
             return None
         
         return float(np.std(pitches))
+    """
 
 
     # -----------------------------------------------------
     #  CALCULO EN BASE A CADA CHUNKS DE LA VENTANA DE 100 MS
     # -----------------------------------------------------
     # Devuelve la frecuencia fundamental (F0) de la ventana de audio usando Aubio
-    """
     def detect_f0_pitch(self,  audio_windows: bytes):
 
         # PCM (codec) int16 -> float32 normalizado
@@ -512,7 +512,6 @@ class CascadaAMDClass:
         pitch = float(self.pitch_detector(samples32)[0])
 
         return pitch
-    """
 
 
     #--------------------------------------------------------
