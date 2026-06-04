@@ -77,7 +77,7 @@ VAR_AGRESSIVENESS = 2
 
 
 def score_numpy (numpy_rms: float) -> tuple [float, float]:
-    if numpy_rms is None or numpy_rms < 0.005:
+    if numpy_rms is None:
         return (0.0, 0.0)
     
     if numpy_rms > 0.05:
@@ -118,7 +118,7 @@ def score_f0_pitch (f0_pitch_score: float) -> tuple [float, float]:
     if f0_pitch_score is None:
         return (0.0, 0.0)
 
-    if f0_pitch_score > 45:
+    if f0_pitch_score > 50:
         return (0.25, -0.15)
     return (0.0, 0.0)
 # -------------------------------------------------------
