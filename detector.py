@@ -79,13 +79,14 @@ VAR_AGRESSIVENESS = 2
 def score_numpy (numpy_rms: float) -> tuple [float, float]:
     if numpy_rms is None:
         return (0.0, 0.0)
-    
+    """
     if numpy_rms < 0.005:
         return (0.0, 0.0)
     elif (numpy_rms >= 0.005) and (numpy_rms < 0.01):
         return (0.0, 0.0)
     else:
-        return (0.1, -0.1)
+    """
+    return (0., 0.0)
     
 def score_goertzel (goertzel_score: float) -> tuple [float, float]:
     if goertzel_score is None:
@@ -145,7 +146,7 @@ def score_f0_pitch (f0_pitch_score: float) -> tuple [float, float]:
     if f0_pitch_score < 80:
         return (0.0, 0.0)
     elif (f0_pitch_score >= 80) and (f0_pitch_score < 300):
-        return (0.05, 0.0)
+        return (0.0, 0.0)
     elif (f0_pitch_score >= 300) and (f0_pitch_score < 900):
         return (0.1, 0.1)
     elif (f0_pitch_score >= 900) and (f0_pitch_score < 1600):
