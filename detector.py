@@ -77,43 +77,30 @@ VAR_AGRESSIVENESS = 2
 
 
 def score_numpy (numpy_rms: float) -> tuple [float, float]:
-    if numpy_rms is None:
+    if numpy_rms is None or numpy_rms < 0.005:
         return (0.0, 0.0)
     
-    if numpy_rms < 0.005:
-        return (0.0, 0.0)
-    elif (numpy_rms >= 0.005) and (numpy_rms < 0.01):
-        return (0.0, 0.0)
+    if numpy_rms > 0.04:
+        return (-0.1, 0.1)
     else:
-        return (0.1, -0.1)
+        return (0.0, 0.0)
     
 def score_goertzel (goertzel_score: float) -> tuple [float, float]:
     if goertzel_score is None:
         return (0.0, 0.0)
     
-    if goertzel_score < 0.3:
-        return (0.0, 0.0)
-    elif (goertzel_score >= 0.3) and (goertzel_score < 0.5):
-        return (-0.1, 0.2)
-    elif (goertzel_score >= 0.5) and (goertzel_score < 0.7):
-        return (-0.2, 0.6)
-    else:
-        return (-0.1, 0.3)
+    return (0.0, 0.0)
     
 
 def score_webrtcvad (webrtcvad_score: float) -> tuple [float, float]:
     if webrtcvad_score is None:
         return (0.0, 0.0)
-    """
-    if webrtcvad_score < 0.2:
-        return (0.0, 0.05)
-    elif (webrtcvad_score >= 0.2) and (webrtcvad_score < 0.5):
-        return (0.2, -0.1)
-    elif (webrtcvad_score >= 0.5) and (webrtcvad_score < 0.8):
+    if webrtcvad_score < 0.5:
+        return (0.25, -0.2)
+    elif (webrtcvad_score >= 0.5) and (webrtcvad_score < 0.78):
         return (0.0, 0.0)
     else:
-    """
-    return (0.0, 0.0)
+        return (-0.1, 0.25)
 
 
 # -------------------------------------------------------
@@ -140,19 +127,15 @@ def score_f0_pitch (f0_pitch_score: float) -> tuple [float, float]:
 # SCORING DE PITCH POR VENTANA DE 100 MS SIN DESVIACION 
 # -------------------------------------------------------
 def score_f0_pitch (f0_pitch_score: float) -> tuple [float, float]:
-    if f0_pitch_score is None:
+    if f0_pitch_score is None or f0_pitch_score > 400:
         return (0.0, 0.0)
 
-    if f0_pitch_score < 80:
+    if f0_pitch_score < 70:
+        return (-0.25, 0.3)
+    elif (f0_pitch_score >= 70) and (f0_pitch_score < 110):
         return (0.0, 0.0)
-    elif (f0_pitch_score >= 80) and (f0_pitch_score < 300):
-        return (0.0, 0.0)
-    elif (f0_pitch_score >= 300) and (f0_pitch_score < 900):
-        return (0.1, 0.1)
-    elif (f0_pitch_score >= 900) and (f0_pitch_score < 1600):
-        return (-0.3, 0.7)
     else:
-        return (0.0, 0.2)
+        return (0.35, -0.25)
         
 # Funcion para Goertzel
 def gc(samples, sample_rate, target_freq):
@@ -307,10 +290,10 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
         print(f"Chunk recibido de: {len(chunk)}")
 
 # Definimos pesos por modelos primero
-weight_numpy = 0.30
-weight_goertzel = 0.15
-weight_webrtcvad = 0.25
-weight_f0_pitch = 0.30
+weight_numpy = 0.15
+weight_goertzel = 0.10
+weight_webrtcvad = 0.30
+weight_f0_pitch = 0.45
 
 
 
@@ -356,6 +339,9 @@ class CascadaAMDClass:
 
         # Contador para wavs de numpy 40 ms
         self.counter_buffer=0
+
+        # Historial de F0 para calcular desviacion
+        self.f0_history = []
 
 
     # Devuelve energia de la ventana de audio usando numpy
@@ -504,7 +490,7 @@ class CascadaAMDClass:
         samples = np.frombuffer(audio_windows, dtype=np.int16)
 
         if len(samples) == 0:
-            return 0.0
+            return None
         
         # Normalizamos
         samples32 = samples.astype(np.float32) / 32768.0
@@ -512,7 +498,7 @@ class CascadaAMDClass:
         # Calculamos Pitch usando aubio
         pitch = float(self.pitch_detector(samples32)[0])
 
-        return pitch
+        return pitch if 70 <= pitch <= 400 else None
 
 
     #--------------------------------------------------------
@@ -578,8 +564,14 @@ class CascadaAMDClass:
         if len(f0_window) < f0_window_bytes:
             f0_pitch = None
         else:
-
             f0_pitch = self.detect_f0_pitch(f0_window)
+        # 
+        if f0_pitch is not None:
+            self.f0_history.append(f0_pitch)
+        if len(self.f0_history) >= 6:  # Mantener solo las últimas 6 mediciones de F0
+            f0_std = float(np.std(self.f0_history))
+        else: 
+            f0_std = None
 
 
         #--------------------------------------------------------
@@ -605,7 +597,7 @@ class CascadaAMDClass:
         # ------------------------------------ #
 
         # Score de humano y buzón usando F0 Pitch
-        dh_f0_pitch, db_f0_pitch = score_f0_pitch(f0_pitch)
+        dh_f0_pitch, db_f0_pitch = score_f0_pitch(f0_std)
         
 
         #--------------------------------------------------------
