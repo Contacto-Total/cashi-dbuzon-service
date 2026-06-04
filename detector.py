@@ -79,14 +79,13 @@ VAR_AGRESSIVENESS = 2
 def score_numpy (numpy_rms: float) -> tuple [float, float]:
     if numpy_rms is None:
         return (0.0, 0.0)
-    """
+    
     if numpy_rms < 0.005:
         return (0.0, 0.0)
     elif (numpy_rms >= 0.005) and (numpy_rms < 0.01):
         return (0.0, 0.0)
     else:
-    """
-    return (0.0, 0.0)
+        return (0.1, -0.1)
     
 def score_goertzel (goertzel_score: float) -> tuple [float, float]:
     if goertzel_score is None:
@@ -105,7 +104,7 @@ def score_goertzel (goertzel_score: float) -> tuple [float, float]:
 def score_webrtcvad (webrtcvad_score: float) -> tuple [float, float]:
     if webrtcvad_score is None:
         return (0.0, 0.0)
-    
+    """
     if webrtcvad_score < 0.2:
         return (0.0, 0.05)
     elif (webrtcvad_score >= 0.2) and (webrtcvad_score < 0.5):
@@ -113,7 +112,8 @@ def score_webrtcvad (webrtcvad_score: float) -> tuple [float, float]:
     elif (webrtcvad_score >= 0.5) and (webrtcvad_score < 0.8):
         return (0.0, 0.0)
     else:
-        return (0.05, 0.0)
+    """
+    return (0.0, 0.0)
 
 
 # -------------------------------------------------------
