@@ -85,7 +85,7 @@ def score_numpy (numpy_rms: float) -> tuple [float, float]:
     elif (numpy_rms >= 0.005) and (numpy_rms < 0.01):
         return (0.0, 0.0)
     else:
-        return (0.1, -0.05)
+        return (0.1, -0.1)
     
 def score_goertzel (goertzel_score: float) -> tuple [float, float]:
     if goertzel_score is None:
@@ -94,9 +94,9 @@ def score_goertzel (goertzel_score: float) -> tuple [float, float]:
     if goertzel_score < 0.3:
         return (0.0, 0.0)
     elif (goertzel_score >= 0.3) and (goertzel_score < 0.5):
-        return (00.0, 0.0)
+        return (-0.1, 0.2)
     elif (goertzel_score >= 0.5) and (goertzel_score < 0.7):
-        return (-0.05, 0.15)
+        return (-0.2, 0.6)
     else:
         return (-0.1, 0.3)
     
@@ -106,13 +106,13 @@ def score_webrtcvad (webrtcvad_score: float) -> tuple [float, float]:
         return (0.0, 0.0)
     
     if webrtcvad_score < 0.2:
-        return (0.0, 0.0)
+        return (0.0, 0.05)
     elif (webrtcvad_score >= 0.2) and (webrtcvad_score < 0.5):
-        return (0.15, -0.05)
+        return (0.2, -0.1)
     elif (webrtcvad_score >= 0.5) and (webrtcvad_score < 0.8):
-        return (0.1, 0.0)
+        return (0.0, 0.0)
     else:
-        return (0.05, 0.2)
+        return (0.05, 0.0)
 
 
 # -------------------------------------------------------
