@@ -80,7 +80,7 @@ def score_numpy (numpy_rms: float) -> tuple [float, float]:
     if numpy_rms is None:
         return (0.0, 0.0)
     
-    if numpy_rms > 0.05:
+    if numpy_rms > 0.06:
         return (-0.1, 0.2)
     elif (numpy_rms > 0.02):
         return (0.15, -0.1)
@@ -118,7 +118,9 @@ def score_f0_pitch (f0_pitch_score: float) -> tuple [float, float]:
     if f0_pitch_score is None:
         return (0.0, 0.0)
 
-    if f0_pitch_score > 50:
+    if f0_pitch_score < 18:
+        return (0.25, -0.15)
+    if f0_pitch_score > 53:
         return (0.25, -0.15)
     return (0.0, 0.0)
 # -------------------------------------------------------
