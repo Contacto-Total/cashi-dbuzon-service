@@ -80,10 +80,10 @@ def score_numpy (numpy_rms: float) -> tuple [float, float]:
     if numpy_rms is None:
         return (0.0, 0.0)
     
-    if numpy_rms > 0.06:
+    if numpy_rms > 0.05:
         return (-0.1, 0.2)
     elif (numpy_rms > 0.02):
-        return (0.15, -0.1)
+        return (0.5, -0.4)
     else:
         return (0.0, 0.0)
     
