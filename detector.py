@@ -358,6 +358,7 @@ class CascadaAMDClass:
         self.rms_count = 0
 
         self.ah_f0 = 0.0
+        self.ah_rms = 0.0
 
 
     # Devuelve energia de la ventana de audio usando numpy
@@ -608,6 +609,7 @@ class CascadaAMDClass:
 
         # Score de humano y buzón usando Numpy
         dh_numpy, db_numpy = score_numpy(rms_avg)
+        self.ah_rms += dh_numpy
 
         # Score de humano y buzón usando Goertzel
         dh_goertzel, db_goertzel = score_goertzel(goertzel)
@@ -655,7 +657,7 @@ class CascadaAMDClass:
         if self.score_human >= HUMAN_THRESHOLD:
             self.decision = "humano"
         elif self.score_buzon >= BUZON_THRESHOLD:
-            if self.ah_f0 >= 8:
+            if self.ah_f0 >= 8 or self.ah_rms >= 10:
                 self.decision = None
             else:
                 self.decision = "buzon"
