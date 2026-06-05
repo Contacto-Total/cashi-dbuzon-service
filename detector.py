@@ -655,7 +655,7 @@ class CascadaAMDClass:
         if self.score_human >= HUMAN_THRESHOLD:
             self.decision = "humano"
         elif self.score_buzon >= BUZON_THRESHOLD:
-            if (f0_std is not None and f0_std < 15) or self.ah_f0 >= 8:
+            if self.ah_f0 >= 8:
                 self.decision = None
             else:
                 self.decision = "buzon"
