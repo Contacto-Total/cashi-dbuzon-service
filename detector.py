@@ -357,6 +357,8 @@ class CascadaAMDClass:
         self.rms_sum = 0.0
         self.rms_count = 0
 
+        self.ah_f0 = 0.0
+
 
     # Devuelve energia de la ventana de audio usando numpy
     def detect_numpy(self, audio_window: bytes) -> float:
@@ -652,7 +654,10 @@ class CascadaAMDClass:
         if self.score_human >= HUMAN_THRESHOLD:
             self.decision = "humano"
         elif self.score_buzon >= BUZON_THRESHOLD:
-            self.decision = "buzon"
+            if (f0_std is not None and f0_std < 15) or self.ah_f0 >= 8:
+                self.decision = None
+            else:
+                self.decision = "buzon"
     
         return {
             # Resultados de la cascada
