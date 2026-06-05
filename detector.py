@@ -353,6 +353,10 @@ class CascadaAMDClass:
         self.vad_sum = 0.0
         self.vad_count = 0
 
+        # VARIABLES PARA ANALIZAR EL ACUMULADO DE RMS DE TODA LA LLAMADA
+        self.rms_sum = 0.0
+        self.rms_count = 0
+
 
     # Devuelve energia de la ventana de audio usando numpy
     def detect_numpy(self, audio_window: bytes) -> float:
@@ -557,6 +561,10 @@ class CascadaAMDClass:
             
             # Ejecutamos Numpy
             numpy = self.detect_numpy(numpy_window)
+        r = numpy if numpy is not None else 0.0
+        self.rms_sum += r
+        self.rms_count += 1
+        rms_avg = self.rms_sum / self.rms_count if self.rms_count >= 40 else None
 
         # Detectamos luego con Goertzel
         if len(goertzel_window) < goertzel_window_bytes:
@@ -597,7 +605,7 @@ class CascadaAMDClass:
         #--------------------------------------------------------
 
         # Score de humano y buzón usando Numpy
-        dh_numpy, db_numpy = score_numpy(numpy)
+        dh_numpy, db_numpy = score_numpy(rms_avg)
 
         # Score de humano y buzón usando Goertzel
         dh_goertzel, db_goertzel = score_goertzel(goertzel)
