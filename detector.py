@@ -628,6 +628,7 @@ class CascadaAMDClass:
 
         # Score de humano y buzón usando F0 Pitch
         dh_f0_pitch, db_f0_pitch = score_f0_pitch(f0_std)
+        self.ah_f0 += dh_f0_pitch
         
 
         #--------------------------------------------------------
