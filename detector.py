@@ -96,7 +96,6 @@ def score_goertzel (goertzel_score: float) -> tuple [float, float]:
     else:
         return (0.0, 0.0)
     
-
 def score_webrtcvad (webrtcvad_score: float) -> tuple [float, float]:
     if webrtcvad_score is None:
         return (0.0, 0.0)
@@ -600,7 +599,6 @@ class CascadaAMDClass:
         if len(goertzel_window) < goertzel_window_bytes:
             goertzel = None
         else:
-            
             goertzel = self.detect_goertzel(goertzel_window, SAMPLE_RATE_DEFAULT)
 
         # Detectamos luego con WebRTC VAD
@@ -691,6 +689,8 @@ class CascadaAMDClass:
         elif self.score_buzon >= BUZON_THRESHOLD:
             if rms_avg is not None and rms_avg < 0.005:
                 self.decision = None
+            elif f0_avg_run is not None and self.f0_n >= 6 and f0_avg_run > 250:
+                self.decision = None
             elif self.score_buzon < 3.0 and  (self.ah_f0 >= 8 or self.ah_rms >= 10):
                 self.decision = None
             else:
@@ -743,7 +743,7 @@ class CascadaAMDClass:
                 "vad": db_webrtcvad,
                 "f0": db_f0_pitch
             }
-        }
+    }
 
 
 
