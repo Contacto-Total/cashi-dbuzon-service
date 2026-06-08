@@ -53,7 +53,7 @@ app = FastAPI()
 SAMPLE_RATE_DEFAULT = 8000
 
 # LIMITE DE ALMACENAMIENTO DE AUDIO EN BUFFER
-LIMIT_BUFFER_MS = 1500
+LIMIT_BUFFER_MS = 1800
 
 # 16000 bytes = 1 segundo = 1000 ms
 # 1500 ms * 8000 bytes * 2 (int16) / 1000 ms = 24000 bytes
@@ -260,6 +260,30 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
             break
 
 
+        # ------------------------------------------------------------------------
+        # TEMPORAL
+        # ------------------------------------------------------------------------
+        # --- TOPE DE TIEMPO (1800ms) -> SIN DECISION (sin Whisper) ---
+        # El ring_buffer se llena a LIMIT_BUFFER_BYTES (28800 = 1800ms) justo
+        # en el chunk 90. Si llegamos aqui es porque NO hubo decision DSP.
+        # Cerramos como "sindetectar" para medir cuantos pasarian a Whisper.
+        if len(cascada.ring_buffer) >= LIMIT_BUFFER_BYTES:
+            payload_sindecision = {
+                "type": "decision",
+                "source": "dsp_timeout",
+                **event_base,
+                "decision": {
+                    "result": "sindetectar",
+                    "scores": result["scores"],
+                    "decided_at_chunk": contador_chunk,
+                    "decided_at_ms": elapsed_ms
+                }
+            }
+            print("Tope 1800ms sin decision -> sindetectar")
+            await websocket.send_json(payload_sindecision)
+            await websocket.close()
+            break
+
         """
 
         # COMENTAOD PARA QUE NO PASE A WHISPER PARA PRUEBAS
@@ -359,6 +383,9 @@ class CascadaAMDClass:
 
         self.ah_f0 = 0.0
         self.ah_rms = 0.0
+
+        self.f0_sum=0.0;
+        self.f0_n=0
 
 
     # Devuelve energia de la ventana de audio usando numpy
@@ -584,8 +611,6 @@ class CascadaAMDClass:
             webrtcvad_score = self.detect_webrtcvad(vad_window, self.vad, SAMPLE_RATE_DEFAULT)
         
         v = webrtcvad_score if webrtcvad_score is not None else 0.0
-        if numpy is not None and numpy < 0.003:
-            v = 0.0
         if v > 0 or self.vad_count > 0:
             self.vad_sum += v
             self.vad_count += 1
@@ -599,6 +624,10 @@ class CascadaAMDClass:
         # 
         if f0_pitch is not None:
             self.f0_history.append(f0_pitch)
+            self.f0_sum += f0_pitch
+            self.f0_n += 1
+        # Media movil de F0 para toda la llamada (acumulado)
+        f0_avg_run = self.f0_sum / self.f0_n if self.f0_n > 0 else None
         if len(self.f0_history) >= 6:  # Mantener solo las últimas 6 mediciones de F0
             f0_std = float(np.std(self.f0_history))
         else: 
@@ -655,14 +684,31 @@ class CascadaAMDClass:
             db_f0_pitch * weight_f0_pitch
         )
 
+        # --- CAMBIO 2: Desempate buzón por huella TTS ---
+        # Pitch alto y consistente (220-250 Hz) + voz estable (vad>=0.55) +
+        # variabilidad media de pitch (f0_std 29-50). Verificado contra las 5
+        # bases: ningun humano cae en esta banda -> SOLO refuerza buzon.
+        if (f0_std is not None and 29 <= f0_std <= 50
+                  and vad_ratio is not None and vad_ratio >= 0.55
+                  and f0_avg_run is not None and 220 <= f0_avg_run <= 250):
+              self.score_buzon += 0.12
+
 
         if self.score_human >= HUMAN_THRESHOLD:
             self.decision = "humano"
         elif self.score_buzon >= BUZON_THRESHOLD:
-            if self.ah_f0 >= 8 or self.ah_rms >= 10:
+            if self.score_buzon < 3.0 and  (self.ah_f0 >= 8 or self.ah_rms >= 10):
                 self.decision = None
             else:
                 self.decision = "buzon"
+        
+        # --- CAMBIO 3: Desempate humano para llamadas con pausas (vad bajo) ---
+        # vad<0.50 => ningun buzon llega ahi (todos tienen vad>=0.55) -> no crea
+        # errores. Rescata humanos lento/silencio con tendencia clara (margen>=3).
+        elif (vad_ratio is not None and vad_ratio < 0.50
+                  and self.score_human > 0
+                  and (self.score_human - self.score_buzon) >= 3.0):
+              self.decision = "humano"
     
         return {
             # Resultados de la cascada
