@@ -322,7 +322,7 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
 # Definimos pesos por modelos primero
 weight_numpy = 0.15
 weight_goertzel = 0.10
-weight_webrtcvad = 0.30
+weight_webrtcvad = 0.25
 weight_f0_pitch = 0.45
 
 
@@ -684,14 +684,6 @@ class CascadaAMDClass:
             db_f0_pitch * weight_f0_pitch
         )
 
-        # --- CAMBIO 2: Desempate buzón por huella TTS ---
-        # Pitch alto y consistente (220-250 Hz) + voz estable (vad>=0.55) +
-        # variabilidad media de pitch (f0_std 29-50). Verificado contra las 5
-        # bases: ningun humano cae en esta banda -> SOLO refuerza buzon.
-        if (f0_std is not None and 29 <= f0_std <= 50
-                  and vad_ratio is not None and vad_ratio >= 0.55
-                  and f0_avg_run is not None and 220 <= f0_avg_run <= 250):
-              self.score_buzon += 0.12
 
 
         if self.score_human >= HUMAN_THRESHOLD:
@@ -705,9 +697,9 @@ class CascadaAMDClass:
         # --- CAMBIO 3: Desempate humano para llamadas con pausas (vad bajo) ---
         # vad<0.50 => ningun buzon llega ahi (todos tienen vad>=0.55) -> no crea
         # errores. Rescata humanos lento/silencio con tendencia clara (margen>=3).
-        elif (vad_ratio is not None and vad_ratio < 0.50
-                  and self.score_human > 0
-                  and (self.score_human - self.score_buzon) >= 3.0):
+        elif (vad_ratio is not None and vad_ratio < 0.55
+                  and self.score_buzon < 0
+                  and (self.score_human - self.score_buzon) >= 2.0):
               self.decision = "humano"
     
         return {
