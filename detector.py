@@ -594,7 +594,7 @@ class CascadaAMDClass:
         r = numpy if numpy is not None else 0.0
         self.rms_sum += r
         self.rms_count += 1
-        rms_avg = self.rms_sum / self.rms_count if self.rms_count >= 20 else None
+        rms_avg = self.rms_sum / self.rms_count if self.rms_count >= 35 else None
 
         # Detectamos luego con Goertzel
         if len(goertzel_window) < goertzel_window_bytes:
@@ -614,7 +614,7 @@ class CascadaAMDClass:
         if v > 0 or self.vad_count > 0:
             self.vad_sum += v
             self.vad_count += 1
-        vad_ratio = self.vad_sum / self.vad_count if self.vad_count >= 20 else None
+        vad_ratio = self.vad_sum / self.vad_count if self.vad_count >= 35 else None
 
         # Detectamos luego con F0 Pitch
         if len(f0_window) < f0_window_bytes:
