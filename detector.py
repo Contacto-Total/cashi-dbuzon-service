@@ -114,13 +114,13 @@ def score_webrtcvad (webrtcvad_score: float) -> tuple [float, float]:
 # -------------------------------------------------------
 def score_f0_pitch (f0_std: float, f0_avg: float, f0_n: int) -> tuple [float, float]:
       # agudo (media estable) -> humano
-      if f0_avg is not None and f0_n >= 3 and f0_avg > 250:
+      if f0_avg is not None and f0_n >= 2 and f0_avg > 250:
           return (0.6, -0.4)
       # expresivo -> humano
       if f0_std is not None and f0_std > 53:
           return (0.4, -0.25)
       # monotono -> humano (gateado por muestras: usa el acumulado ya estable)
-      if f0_std is not None and f0_n >= 15 and f0_std < 9.5:
+      if f0_std is not None and f0_n >= 8 and f0_std < 9.5:
           return (0.5, -0.3)
       return (0.0, 0.0)
 # -------------------------------------------------------
