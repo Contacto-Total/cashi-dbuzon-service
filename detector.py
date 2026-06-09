@@ -589,10 +589,6 @@ class CascadaAMDClass:
         self.counter_buffer += 1
         """
 
-        quiet = self.rms_max < 0.046
-        spiky = rms_avg is not None and rms_avg < 0.038 and self.rms_max > 0.22
-        pausey = (f0_avg_run is not None and vad_ratio is not None and f0_avg_run < 227 and vad_ratio < 0.38)
-
         # Detectamos Primero con Numpy
         if len(numpy_window) < numpy_window_bytes:
             numpy = None
@@ -692,6 +688,10 @@ class CascadaAMDClass:
             db_webrtcvad * weight_webrtcvad + 
             db_f0_pitch * weight_f0_pitch
         )
+
+        quiet = self.rms_max < 0.046
+        spiky = rms_avg is not None and rms_avg < 0.038 and self.rms_max > 0.22
+        pausey = (f0_avg_run is not None and vad_ratio is not None and f0_avg_run < 227 and vad_ratio < 0.38)
 
 
         if self.rms_count >= 80 and (quiet or spiky or pausey):
