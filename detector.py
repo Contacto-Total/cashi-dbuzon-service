@@ -120,8 +120,8 @@ def score_f0_pitch (f0_std: float, f0_avg: float, f0_n: int) -> tuple [float, fl
       if f0_std is not None and f0_std > 53:
           return (0.4, -0.25)
       # monotono -> humano (gateado por muestras: usa el acumulado ya estable)
-      if f0_std is not None and f0_n >= 15 and f0_std < 9.5:
-          return (0.5, -0.3)
+      if f0_std is not None and f0_n >= 8 and f0_std < 12:
+          return (0.6, -0.4)
       return (0.0, 0.0)
 # -------------------------------------------------------
 # SCORING DE PITCH POR VENTANA DE 500 MS CONs DESVIACION 
@@ -686,7 +686,7 @@ class CascadaAMDClass:
         )
 
 
-        if f0_avg_run is not None and self.f0_n >= 2 and f0_avg_run > 250:
+        if f0_avg_run is not None and self.f0_n >= 5 and f0_avg_run > 250:
             self.score_buzon = 0.0
             self.score_human = max (self.score_human, HUMAN_THRESHOLD)
             self.decision = "humano"
@@ -709,6 +709,9 @@ class CascadaAMDClass:
                 and vad_ratio is not None and vad_ratio < 0.55
                 and self.score_buzon < 0
                 and (self.score_human - self.score_buzon) >= 2.0):
+            self.decision = "humano"
+        # Si llego hasta aqui el buzno no domina ya tiene pausas largas luego de hablar
+        elif (self.rms_count >= 70 and vad_ratio is not None and vad_ratio < 0.40):
             self.decision = "humano"
     
         return {
