@@ -686,21 +686,22 @@ class CascadaAMDClass:
         )
 
 
-
-        if self.score_human >= HUMAN_THRESHOLD:
+        if f0_avg_run is not None and self.f0_n >= 2 and f0_avg_run > 250:
+            self.score_buzon = 0.0
+            self.score_human = max (self.score_human, HUMAN_THRESHOLD)
+            self.decision = "humano"
+        elif self.score_human >= HUMAN_THRESHOLD:
             self.decision = "humano"
         elif self.score_buzon >= BUZON_THRESHOLD:
             if rms_avg is not None and rms_avg < 0.005:
                 self.decision = None
-            elif f0_avg_run is not None and self.f0_n >= 2 and f0_avg_run > 250 and not self.agudo_hard:
-                self.score_buzon = min(self.score_buzon, 0.0)  # Limitamos el score de buzón a 0 si detectamos agudo estable
-                self.score_human += 1
-                self.agudo_hard = True
             elif self.score_buzon < 3.0 and  (self.ah_f0 >= 8 or self.ah_rms >= 10):
                 self.decision = None
             else:
                 self.decision = "buzon"
-        
+        elif (self.rms_count >=70 and vad_ratio is not None and vad_ratio < 0.55 and self.score_buzon < 0 and (self.score_human - self.score_buzon) >= 2.0):
+            self.decision = "humano"
+
         # --- CAMBIO 3: Desempate humano para llamadas con pausas (vad bajo) ---
         # vad<0.50 => ningun buzon llega ahi (todos tienen vad>=0.55) -> no crea
         # errores. Rescata humanos lento/silencio con tendencia clara (margen>=3).
