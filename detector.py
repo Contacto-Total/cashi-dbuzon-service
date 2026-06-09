@@ -112,14 +112,17 @@ def score_webrtcvad (webrtcvad_score: float) -> tuple [float, float]:
 # -------------------------------------------------------
 # SCORING DE PITCH POR VENTANA DE 100 MS SIN DESVIACION 
 # -------------------------------------------------------
-def score_f0_pitch (f0_pitch_score: float) -> tuple [float, float]:
-
-    if f0_pitch_score is None:
-        return (0.0, 0.0)
-
-    if f0_pitch_score > 53:
-        return (0.25, -0.15)
-    return (0.0, 0.0)
+def score_f0_pitch (f0_std: float, f0_avg: float, f0_n: int) -> tuple [float, float]:
+      # agudo (media estable) -> humano
+      if f0_avg is not None and f0_n >= 3 and f0_avg > 250:
+          return (0.6, -0.4)
+      # expresivo -> humano
+      if f0_std is not None and f0_std > 53:
+          return (0.4, -0.25)
+      # monotono -> humano (gateado por muestras: usa el acumulado ya estable)
+      if f0_std is not None and f0_n >= 15 and f0_std < 9.5:
+          return (0.5, -0.3)
+      return (0.0, 0.0)
 # -------------------------------------------------------
 # SCORING DE PITCH POR VENTANA DE 500 MS CONs DESVIACION 
 # -------------------------------------------------------
@@ -658,7 +661,7 @@ class CascadaAMDClass:
         # ------------------------------------ #
 
         # Score de humano y buzón usando F0 Pitch
-        dh_f0_pitch, db_f0_pitch = score_f0_pitch(f0_std)
+        dh_f0_pitch, db_f0_pitch = score_f0_pitch(f0_std, f0_avg_run, self.f0_n)
         self.ah_f0 += dh_f0_pitch
         
 
@@ -689,10 +692,6 @@ class CascadaAMDClass:
         elif self.score_buzon >= BUZON_THRESHOLD:
             if rms_avg is not None and rms_avg < 0.005:
                 self.decision = None
-            elif f0_avg_run is not None and self.f0_n >= 3 and f0_avg_run > 250:
-                self.decision = "humano"
-            elif f0_std is not None and self.f0_n >= 6 and f0_std < 9.5:
-                self.decision = "humano"
             elif self.score_buzon < 3.0 and  (self.ah_f0 >= 8 or self.ah_rms >= 10):
                 self.decision = None
             else:
