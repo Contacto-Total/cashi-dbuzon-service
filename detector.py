@@ -382,12 +382,15 @@ class CascadaAMDClass:
         # VARIABLES PARA ANALIZAR EL ACUMULADO DE RMS DE TODA LA LLAMADA
         self.rms_sum = 0.0
         self.rms_count = 0
+        self.rms_max = 0.0
 
         self.ah_f0 = 0.0
         self.ah_rms = 0.0
 
         self.f0_sum=0.0;
         self.f0_n=0
+
+
 
 
     # Devuelve energia de la ventana de audio usando numpy
@@ -586,6 +589,10 @@ class CascadaAMDClass:
         self.counter_buffer += 1
         """
 
+        quiet = self.rms_max < 0.046
+        spiky = rms_avg is not None and rms_avg < 0.038 and self.rms_max > 0.22
+        pausey = (f0_avg_run is not None and vad_ratio is not None and f0_avg_run < 227 and vad_ratio < 0.38)
+
         # Detectamos Primero con Numpy
         if len(numpy_window) < numpy_window_bytes:
             numpy = None
@@ -596,6 +603,7 @@ class CascadaAMDClass:
         r = numpy if numpy is not None else 0.0
         self.rms_sum += r
         self.rms_count += 1
+        self.rms_max = max(self.rms_max, r)
         rms_avg = self.rms_sum / self.rms_count if self.rms_count >= 20 else None
 
         # Detectamos luego con Goertzel
@@ -686,15 +694,15 @@ class CascadaAMDClass:
         )
 
 
-        if f0_avg_run is not None and self.f0_n >= 5 and f0_avg_run > 250:
-            self.score_buzon = 0.0
-            self.score_human = max (self.score_human, HUMAN_THRESHOLD)
+        if self.rms_count >= 80 and (quiet or spiky or pausey):
             self.decision = "humano"
         elif self.score_human >= HUMAN_THRESHOLD:
             self.decision = "humano"
         elif self.score_buzon >= BUZON_THRESHOLD:
             if rms_avg is not None and rms_avg < 0.005:
                 self.decision = None
+            elif quiet:
+                self.decision = "humano"
             elif self.score_buzon < 3.0 and  (self.ah_f0 >= 8 or self.ah_rms >= 10):
                 self.decision = None
             else:
@@ -702,14 +710,6 @@ class CascadaAMDClass:
         elif (self.rms_count >=70 and vad_ratio is not None and vad_ratio < 0.55 and self.score_buzon < 0 and (self.score_human - self.score_buzon) >= 2.0):
             self.decision = "humano"
 
-        # --- CAMBIO 3: Desempate humano para llamadas con pausas (vad bajo) ---
-        # vad<0.50 => ningun buzon llega ahi (todos tienen vad>=0.55) -> no crea
-        # errores. Rescata humanos lento/silencio con tendencia clara (margen>=3).
-        elif (self.rms_count >= 70
-                and vad_ratio is not None and vad_ratio < 0.55
-                and self.score_buzon < 0
-                and (self.score_human - self.score_buzon) >= 2.0):
-            self.decision = "humano"
     
         return {
             # Resultados de la cascada
