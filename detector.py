@@ -686,7 +686,7 @@ class CascadaAMDClass:
         )
 
 
-        if f0_avg_run is not None and self.f0_n >= 5 and f0_avg_run > 250:
+        if f0_avg_run is not None and self.f0_n >= 2 and f0_avg_run > 250:
             self.score_buzon = 0.0
             self.score_human = max (self.score_human, HUMAN_THRESHOLD)
             self.decision = "humano"
