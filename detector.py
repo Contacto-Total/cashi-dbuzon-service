@@ -689,9 +689,9 @@ class CascadaAMDClass:
         elif self.score_buzon >= BUZON_THRESHOLD:
             if rms_avg is not None and rms_avg < 0.005:
                 self.decision = None
-            elif f0_avg_run is not None and self.f0_n >= 6 and f0_avg_run > 250:
+            elif f0_avg_run is not None and self.f0_n >= 3 and f0_avg_run > 250:
                 self.decision = "humano"
-            elif f0_std is not None and self.f0_n >= 6 and f0_std < 10:
+            elif f0_std is not None and self.f0_n >= 6 and f0_std < 9.5:
                 self.decision = "humano"
             elif self.score_buzon < 3.0 and  (self.ah_f0 >= 8 or self.ah_rms >= 10):
                 self.decision = None
