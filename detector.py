@@ -345,7 +345,7 @@ weight_numpy = 0.15
 weight_goertzel = 0.10
 weight_webrtcvad = 0.30
 weight_f0_pitch = 0.45
-weight_loudness = 0.20
+weight_loudness = 0.22
 
 
 
