@@ -280,7 +280,7 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
             await websocket.close()
             break
 
-
+        """
         # ------------------------------------------------------------------------
         # TEMPORAL
         # ------------------------------------------------------------------------
@@ -304,7 +304,6 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
             await websocket.send_json(payload_sindecision)
             await websocket.close()
             break
-
         """
 
         # COMENTAOD PARA QUE NO PASE A WHISPER PARA PRUEBAS
@@ -336,7 +335,6 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
 
             await websocket.close()
             break
-        """
 
         print(f"Chunk recibido de: {len(chunk)}")
 
