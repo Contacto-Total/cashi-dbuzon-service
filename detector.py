@@ -245,7 +245,8 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
 
         payload_analisis["verdict"] = payload_analisis.pop("decision")
 
-        print(payload_analisis)
+        # Comentado temporal 
+        # print(payload_analisis)
 
         # Pasamos por websocket resultados
         await websocket.send_json(payload_analisis)
@@ -271,7 +272,8 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
                 }
             }
 
-            print(payload_decision)
+            # Comentado temporal
+            #print(payload_decision)
             
             await websocket.send_json(payload_decision)
 
@@ -329,14 +331,15 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
                 }
             }
 
-            print(payload_whisper)
+            # Comentado temporal
+            #print(payload_whisper)
 
             await websocket.send_json(payload_whisper)
 
             await websocket.close()
             break
-
-        print(f"Chunk recibido de: {len(chunk)}")
+        # Comentado temporal
+        #print(f"Chunk recibido de: {len(chunk)}")
 
 # Definimos pesos por modelos primero
 weight_numpy = 0.15
@@ -779,12 +782,21 @@ class CascadaAMDClass:
             language="es",
             beam_size=1,
             temperature=0.0,
+            initial_prompt=(                                          # <-- AGREGAR
+                "Llamada telefónica en español. Frases posibles: "
+                "aló, hola, sí, diga, buenas, quién habla; "
+                "casilla de voz, buzón de voz, deje su mensaje después del tono, "
+                "el número que usted marcó no se encuentra disponible."
+            ),
             without_timestamps=True,
             condition_on_previous_text=False,
             vad_filter=False
         )
 
         text = " ".join([segment.text for segment in segments]).lower().strip()
+
+        text = " ".join([segment.text for segment in segments]).lower().strip()
+        print(f"\n===== WHISPER =====\nTRANSCRIPCIÓN: '{text}'\n===================\n")
 
         return text
 
