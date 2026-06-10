@@ -777,24 +777,19 @@ class CascadaAMDClass:
 
         # Resampleamos a 16000 Hz si es necesario
         audio_16k = scipy.signal.resample_poly(audio_f32, 16000,self.sample_rate).astype(np.float32)
-        print(f"[WHISPER DEBUG] muestras:{len(samples)} pico={np.abs(audio_f32).max():.3f} duracion_seg:{len(audio_16k)/16000:.2f}")
+        import wave
+        with wave.open("debug_whisper.wav", "wb") as w:
+            w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000)
+            w.writeframes((np.clip(audio_16k, -1, 1) * 32767).astype(np.int16).tobytes())
 
-        segments , info = WHISPER_MODEL.transcribe(    audio_16k,
-            language="es",
-            beam_size=1,
-            temperature=0.0,
-            initial_prompt=(                                          # <-- AGREGAR
-                "Llamada telefónica en español. Frases posibles: "
-                "aló, hola, sí, diga, buenas, quién habla; "
-                "casilla de voz, buzón de voz, deje su mensaje después del tono, "
-                "el número que usted marcó no se encuentra disponible."
-            ),
-            without_timestamps=True,
-            no_speech_threshold=1.0,      # <-- AGREGAR: nunca descartar por "no speech"
-            log_prob_threshold=-2.0,      # <-- AGREGAR: acepta baja confianza
-            condition_on_previous_text=False,
-            vad_filter=False
-        )
+        segments, info = WHISPER_MODEL.transcribe(audio_16k, language="es", beam_size=1,
+                                            no_speech_threshold=1.0, vad_filter=False,
+                                            condition_on_previous_text=False)
+        seg_list = list(segments)   # <-- fuerza la transcripción
+        print(f"[WHISPER] lang={info.language} prob={info.language_probability:.2f} segmentos={len(seg_list)}")
+        for s in seg_list:
+            print(f"   seg no_speech={s.no_speech_prob:.2f} logprob={s.avg_logprob:.2f} txt='{s.text}'")
+        text = " ".join([s.text for s in seg_list]).lower().strip()
 
         text = " ".join([segment.text for segment in segments]).lower().strip()
 
