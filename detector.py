@@ -26,9 +26,10 @@ import unicodedata
 
 
 WHISPER_MODEL = WhisperModel(
-    "tiny",
+    "/home/ubuntu/cashi/cashi-dbuzon-service/models/faster-whisper-base",
     device="cpu",
-    compute_type="int8"
+    compute_type="int8",
+    
     )
 
 MACHINE_KEYWORDS = [
@@ -782,7 +783,8 @@ class CascadaAMDClass:
 
         segments, info = WHISPER_MODEL.transcribe(audio_16k, language="es", beam_size=1,
                                             no_speech_threshold=1.0, vad_filter=False,
-                                            condition_on_previous_text=False)
+                                            condition_on_previous_text=False,
+                                            initial_prompt="Llamada telefónica en español, Perú.")
         
         
         seg_list = list(segments)                                   # <-- consume UNA vez
