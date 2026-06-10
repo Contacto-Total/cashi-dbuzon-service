@@ -145,7 +145,7 @@ def score_f0_pitch (f0_pitch_score: float) -> tuple [float, float]:
 
 
 def score_human(rms_max, rms_avg, vad_ratio, f0_avg, rms_count):
-    if rms_count is None or rms_count < 60:
+    if rms_count is None or rms_count < 45:
         return (0.0,0.0)
     # Gate de energia: Cuando humano se queda callado pero hay ruido
     if rms_max < 0.0455:
