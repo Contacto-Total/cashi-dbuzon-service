@@ -198,12 +198,12 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
     
     await websocket.accept()
 
-    print(f"llamada conectada: {call_id}")
+    print(f"\n▶ llamada {call_id}")
 
     
     # PRMERO RECIBE JSON DE METADATA    
     meta = await websocket.receive_json()
-    print(f"metadata recibida: {meta}")
+    # print(f"metadata recibida: {meta}")
 
     cascada = CascadaAMDClass()
 
@@ -279,7 +279,7 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
             
             await websocket.send_json(payload_decision)
 
-            print("Desicion tomada, analisis terminado")
+            print(f"  DSP → {result['decision'].upper()} | human={result['scores']['human']:.2f} buzon={result['scores']['buzon']:.2f} | chunk {contador_chunk}")
 
             await websocket.close()
             break
@@ -314,9 +314,9 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
 
         # Si no tenemos la certeza, pasamos a Whisper para que transcriba y clasifique el audio acumulado en el buffer
         if len(cascada.ring_buffer) >= LIMIT_BUFFER_BYTES:
-            print("Fallback a Whisper por buffer lleno sin decision clara.")
 
             whisper_result = cascada.detect_whisper()
+            print(f"  WHISPER → {whisper_result['decision'].upper()}")
 
             payload_whisper={
                 "type": "decision",
@@ -580,7 +580,7 @@ class CascadaAMDClass:
     # Funcion principal para junte de analisis de audio y gamificacion de scores
     def analize_audio (self):
 
-        print(f"Analizando buffer de tamaño: {len(self.ring_buffer)}")
+        # print(f"Analizando buffer de tamaño: {len(self.ring_buffer)}")
 
 
         #--------------------------------------------------------
@@ -780,10 +780,6 @@ class CascadaAMDClass:
         # Resampleamos a 16000 Hz si es necesario
         audio_16k = scipy.signal.resample_poly(audio_f32, 16000,self.sample_rate).astype(np.float32)
 
-        with wave.open("debug_whisper.wav", "wb") as w:
-            w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000)
-            w.writeframes((np.clip(audio_16k, -1, 1) * 32767).astype(np.int16).tobytes())
-
         segments, info = WHISPER_MODEL.transcribe(audio_16k, language="es", beam_size=1,
                                             no_speech_threshold=1.0, vad_filter=False,
                                             condition_on_previous_text=False)
@@ -791,7 +787,7 @@ class CascadaAMDClass:
         
         seg_list = list(segments)                                   # <-- consume UNA vez
         text = " ".join([s.text for s in seg_list]).lower().strip() # <-- usa seg_list, NO segments
-        print(f"\n===== WHISPER =====\nTRANSCRIPCIÓN: '{text}'\n===================\n")
+        print(f"  WHISPER txt: '{text}'")
 
         return text
 
