@@ -790,6 +790,8 @@ class CascadaAMDClass:
                 "el número que usted marcó no se encuentra disponible."
             ),
             without_timestamps=True,
+            no_speech_threshold=1.0,      # <-- AGREGAR: nunca descartar por "no speech"
+            log_prob_threshold=-2.0,      # <-- AGREGAR: acepta baja confianza
             condition_on_previous_text=False,
             vad_filter=False
         )
