@@ -777,6 +777,7 @@ class CascadaAMDClass:
 
         # Resampleamos a 16000 Hz si es necesario
         audio_16k = scipy.signal.resample_poly(audio_f32, 16000,self.sample_rate).astype(np.float32)
+        print(f"[WHISPER DEBUG] muestras:{len(samples)} pico={np.abs(audio_f32).max():.3f} duracion_seg:{len(audio_16k)/16000:.2f}")
 
         segments , info = WHISPER_MODEL.transcribe(    audio_16k,
             language="es",
