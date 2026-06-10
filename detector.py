@@ -713,8 +713,6 @@ class CascadaAMDClass:
                 self.decision = None
             else:
                 self.decision = "buzon"
-        elif (self.rms_count >=70 and vad_ratio is not None and vad_ratio < 0.55 and self.score_buzon < 0 and (self.score_human - self.score_buzon) >= 2.0):
-            self.decision = "humano"
 
     
         return {
