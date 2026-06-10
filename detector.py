@@ -689,7 +689,7 @@ class CascadaAMDClass:
             db_f0_pitch * weight_f0_pitch
         )
 
-        quiet = self.rms_max < 0.046
+        quiet = self.rms_max < 0.0455
         spiky = rms_avg is not None and rms_avg < 0.038 and self.rms_max > 0.22
         pausey = (f0_avg_run is not None and vad_ratio is not None and f0_avg_run < 227 and vad_ratio < 0.38)
 
@@ -697,9 +697,12 @@ class CascadaAMDClass:
         if self.rms_count >= 80 and (quiet or spiky or pausey):
             self.decision = "humano"
         elif self.score_human >= HUMAN_THRESHOLD:
-            self.decision = "humano"
+            if (f0_avg_run is not None and f0_avg_run < 163 and rms_avg is not None and rms_avg > 0.04):
+                self.decision = None
+            else:
+                self.decision = "humano"
         elif self.score_buzon >= BUZON_THRESHOLD:
-            if rms_avg is not None and rms_avg < 0.005:
+            if rms_avg is not None and rms_avg < 0.006:
                 self.decision = None
             elif quiet:
                 self.decision = "humano"
