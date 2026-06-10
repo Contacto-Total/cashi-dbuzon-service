@@ -144,6 +144,21 @@ def score_f0_pitch (f0_pitch_score: float) -> tuple [float, float]:
     """
 
 
+def score_human(rms_max, rms_avg, vad_ratio, f0_avg, rms_count):
+    if rms_count is None or rms_count < 60:
+        return (0.0,0.0)
+    # Gate de energia: Cuando humano se queda callado pero hay ruido
+    if rms_max < 0.0455:
+        return (0.6, -0.4)
+    # Gate de pausas largas: Cuando humano se queda callado por pausas largas
+    if rms_avg is not None and rms_avg < 0.038 and rms_max > 0.22:
+        return (0.6, -0.4)
+    # Pitch bajo + pausas: Cuando humano se queda callado por pausas largas
+    if (f0_avg is not None and vad_ratio is not None and f0_avg < 227 and vad_ratio < 0.38):
+        return (0.4, -0.25)
+    return (0.0, 0.0)
+
+
         
 # Funcion para Goertzel
 def gc(samples, sample_rate, target_freq):
@@ -326,6 +341,7 @@ weight_numpy = 0.15
 weight_goertzel = 0.10
 weight_webrtcvad = 0.30
 weight_f0_pitch = 0.45
+weight_loudness = 0.20
 
 
 
@@ -652,22 +668,18 @@ class CascadaAMDClass:
 
         # Score de humano y buzón usando WebRTC VAD
         dh_webrtcvad, db_webrtcvad = score_webrtcvad(vad_ratio)
-        
-        # ------------------------------------ #
-        # PROBAR PARA VER SI SE TOMA EN CUENTA #
-        # ------------------------------------ #
-        # Gate de energia: no hay voz sin energia. Si el rms esta en silencio,
-        # el VAD no es confiable (falsos positivos) -> no cuenta este chunk.
-        """
-        if numpy is None or numpy < 0.005:
+        # Gate de energia: sin energia, el VAD no es confiable -> no vota
+        if rms_avg is not None and rms_avg < 0.005:
             dh_webrtcvad, db_webrtcvad = 0.0, 0.0
-        """
-        # ------------------------------------ #
 
         # Score de humano y buzón usando F0 Pitch
         dh_f0_pitch, db_f0_pitch = score_f0_pitch(f0_std, f0_avg_run, self.f0_n)
         self.ah_f0 += dh_f0_pitch
         
+        # Score en base a analisis de patron de humano
+        dh_loud, db_loud = score_human(self.rms_max, rms_avg, vad_ratio, f0_avg_run, self.rms_count)
+        self.score_human += dh_loud * weight_loudness
+        self.score_buzon += db_loud * weight_loudness
 
         #--------------------------------------------------------
         # Acumulamos Gamificando los scores
@@ -689,23 +701,14 @@ class CascadaAMDClass:
             db_f0_pitch * weight_f0_pitch
         )
 
-        quiet = self.rms_max < 0.0455
-        spiky = rms_avg is not None and rms_avg < 0.038 and self.rms_max > 0.22
-        pausey = (f0_avg_run is not None and vad_ratio is not None and f0_avg_run < 227 and vad_ratio < 0.38)
-
-
-        if self.rms_count >= 80 and (quiet or spiky or pausey):
-            self.decision = "humano"
-        elif self.score_human >= HUMAN_THRESHOLD:
+        if self.score_human >= HUMAN_THRESHOLD:
             if (f0_avg_run is not None and f0_avg_run < 163 and rms_avg is not None and rms_avg > 0.04):
                 self.decision = None
             else:
                 self.decision = "humano"
         elif self.score_buzon >= BUZON_THRESHOLD:
-            if rms_avg is not None and rms_avg < 0.006:
+            if rms_avg is not None and rms_avg < 0.005:
                 self.decision = None
-            elif quiet:
-                self.decision = "humano"
             elif self.score_buzon < 3.0 and  (self.ah_f0 >= 8 or self.ah_rms >= 10):
                 self.decision = None
             else:
