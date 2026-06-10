@@ -22,6 +22,8 @@ import wave
 from datetime import datetime
 import time
 
+import unicodedata
+
 
 WHISPER_MODEL = WhisperModel(
     "tiny",
@@ -777,7 +779,7 @@ class CascadaAMDClass:
 
         # Resampleamos a 16000 Hz si es necesario
         audio_16k = scipy.signal.resample_poly(audio_f32, 16000,self.sample_rate).astype(np.float32)
-        import wave
+
         with wave.open("debug_whisper.wav", "wb") as w:
             w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000)
             w.writeframes((np.clip(audio_16k, -1, 1) * 32767).astype(np.int16).tobytes())
@@ -785,44 +787,37 @@ class CascadaAMDClass:
         segments, info = WHISPER_MODEL.transcribe(audio_16k, language="es", beam_size=1,
                                             no_speech_threshold=1.0, vad_filter=False,
                                             condition_on_previous_text=False)
-        seg_list = list(segments)   # <-- fuerza la transcripción
-        print(f"[WHISPER] lang={info.language} prob={info.language_probability:.2f} segmentos={len(seg_list)}")
-        for s in seg_list:
-            print(f"   seg no_speech={s.no_speech_prob:.2f} logprob={s.avg_logprob:.2f} txt='{s.text}'")
-        text = " ".join([s.text for s in seg_list]).lower().strip()
-
-        text = " ".join([segment.text for segment in segments]).lower().strip()
-
-        text = " ".join([segment.text for segment in segments]).lower().strip()
+        
+        
+        seg_list = list(segments)                                   # <-- consume UNA vez
+        text = " ".join([s.text for s in seg_list]).lower().strip() # <-- usa seg_list, NO segments
         print(f"\n===== WHISPER =====\nTRANSCRIPCIÓN: '{text}'\n===================\n")
 
         return text
 
+    def _norm(t):
+      # quita tildes y pasa a minúsculas: "busón" -> "buson"
+      return unicodedata.normalize("NFKD", t).encode("ascii", "ignore").decode().lower()
+
     # Clasificamos la transcripcion de Whisper buscando keywords de buzon y humano
     def classify_with_whisper(self, text: str) -> dict:
         if not text:
-            return {"decision": "desconocido", "is_buzon": "transcripcion vacia"}
+          return {"decision": "desconocido", "reason": "transcripcion vacia"}
+        t = self._norm(text)
 
-        # Iteramos para buscar las keywods de buzon primero
-        for keyword in MACHINE_KEYWORDS:
+        machine = ["buzon", "buson", "casilla", "comunicado", "mensaje",
+                    "tono", "senal", "deje su mensaje", "no se encuentra",
+                    "no disponible", "contestador", "buzon de voz"]
+        for k in machine:
+            if k in t:
+                return {"decision": "buzon", "reason": f"keyword '{k}'", "transcripcion": text}
 
-            if keyword in text:
-                return {"decision": "buzon", "reason": f"se detecto la palabra clave '{keyword}' en la transcripcion",
-                        "transcripcion": text}
-        
-        # Iteramos para buscar las keywods de humano luego
-        for keyword in HUMAN_KEYWORDS:
+        human = ["alo", "hola", "diga", "bueno", "buenas", "quien habla", "si diga"]
+        for k in human:
+            if k in t:
+                return {"decision": "humano", "reason": f"keyword '{k}'", "transcripcion": text}
 
-            if keyword in text:
-                return {"decision": "humano",
-                        "reason": f"se detecto la palabra clave '{keyword}' en la transcripcion",
-                        "transcripcion": text}
-        
-        return {
-            "decision": "desconocido",
-            "reason": "no se detectaron palabras clave de buzon ni de humano en la transcripcion",
-            "transcription": text
-        }
+        return {"decision": "desconocido", "reason": "sin keywords", "transcription": text}
         
     # Tomamos la decision final de Whisper
     def detect_whisper (self):
