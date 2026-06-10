@@ -795,7 +795,7 @@ class CascadaAMDClass:
 
         return text
 
-    def _norm(t):
+    def _norm(self, t):
       # quita tildes y pasa a minúsculas: "busón" -> "buson"
       return unicodedata.normalize("NFKD", t).encode("ascii", "ignore").decode().lower()
 
