@@ -144,7 +144,7 @@ def score_f0_pitch (f0_pitch_score: float) -> tuple [float, float]:
     """
 
 
-def score_human(rms_max, rms_avg, vad_ratio, f0_avg, rms_count):
+def score_human(rms_max, rms_avg, vad_ratio, f0_avg, rms_count, score_buzon, score_human):
     if rms_count is None or rms_count < 45:
         return (0.0,0.0)
     # Gate de energia: Cuando humano se queda callado pero hay ruido
@@ -156,6 +156,10 @@ def score_human(rms_max, rms_avg, vad_ratio, f0_avg, rms_count):
     # Pitch bajo + pausas: Cuando humano se queda callado por pausas largas
     if (f0_avg is not None and vad_ratio is not None and f0_avg < 227 and vad_ratio < 0.38):
         return (0.4, -0.25)
+    
+    if (rms_count is None or rms_count >=70 and vad_ratio is not None and vad_ratio < 0.55
+        and score_buzon < 0 and (score_human - score_buzon) >= 2.0):
+        return (0.6, -0.4)
     return (0.0, 0.0)
 
 
@@ -677,7 +681,7 @@ class CascadaAMDClass:
         self.ah_f0 += dh_f0_pitch
         
         # Score en base a analisis de patron de humano
-        dh_loud, db_loud = score_human(self.rms_max, rms_avg, vad_ratio, f0_avg_run, self.rms_count)
+        dh_loud, db_loud = score_human(self.rms_max, rms_avg, vad_ratio, f0_avg_run, self.rms_count, self.score_buzon, self.score_human)
         self.score_human += dh_loud * weight_loudness
         self.score_buzon += db_loud * weight_loudness
 
