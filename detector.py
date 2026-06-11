@@ -355,7 +355,7 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
         if len(cascada.ring_buffer) >= LIMIT_BUFFER_BYTES:
 
             whisper_result = cascada.detect_()
-            print(f"  WHISPER → {whisper_result['decision'].upper()}")
+            print(f"  GPT → {whisper_result['decision'].upper()}")
 
             payload_whisper={
                 "type": "decision",
@@ -833,7 +833,14 @@ class CascadaAMDClass:
         transcript = client.audio.transcriptions.create(
             model="gpt-4o-mini-transcribe",
             file=("audio.wav",wav_buffer, "audio/wav"),
-            language="es"
+            language="es",
+            prompt=(
+                "Transcribe en español de Perú. NO traduzcas al inglés. "
+                "Es una llamada telefónica. Frases típicas: buzón de voz, "
+                "casilla, deje su mensaje después del tono, presione una tecla, "
+                "el número que marcó no está disponible, aló, hola, diga, buenas."
+            ),
+            temperature=0
         )
 
         text = transcript.text.lower().strip()
