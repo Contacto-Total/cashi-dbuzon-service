@@ -8,11 +8,11 @@ import aubio as aubio
 from fastapi import FastAPI, WebSocket
 import json
 
+# import Whisper con Faster
 from faster_whisper import WhisperModel
 import scipy.signal
 
 from starlette.websockets import WebSocketDisconnect
-
 import uvicorn
 
 # para guardar archivos como wav
@@ -21,9 +21,24 @@ import wave
 # Liberias para auditoria de hora
 from datetime import datetime
 import time
-
 import unicodedata
 import re
+
+from dotenv import load_dotenv
+import os
+
+# Import para GPT MINI TRANSCRIBE
+from openai import OpenAI
+import io
+import soundfile as sf
+
+load_dotenv()
+
+client = OpenAI(
+    api_key="OPENAI_API_KEY")
+
+
+
 
 
 WHISPER_MODEL = WhisperModel(
@@ -94,9 +109,9 @@ BUZON_FREQS_HZ = [350.0, 440.0, 480.0, 620.0, 950.0, 1400.0, 1800.0]
 BUZON_FREQ_TOLERANCE_HZ = 30.0
 
 # LIMITE DE PUNTAJE PARA DECIDIR SI ES HUMANO
-HUMAN_THRESHOLD = 3.0
+HUMAN_THRESHOLD = 0.98
 # LIMITE DE PUNTAJE PARA DECIDIR SI ES BUZON
-BUZON_THRESHOLD = 2.5
+BUZON_THRESHOLD = 0.95
 
 # VARIABLE DE AGRESIVIDAD DE WEBRTCVAD
 VAR_AGRESSIVENESS = 2
@@ -107,9 +122,9 @@ def score_numpy (numpy_rms: float) -> tuple [float, float]:
         return (0.0, 0.0)
     
     if numpy_rms > 0.06:
-        return (-0.1, 0.2)
+        return (-0.0326666666666667, 0.076)
     elif (numpy_rms > 0.02):
-        return (0.15, -0.1)
+        return (0.094, -0.038)
     else:
         return (0.0, 0.0)
     
@@ -118,7 +133,7 @@ def score_goertzel (goertzel_score: float) -> tuple [float, float]:
         return (0.0, 0.0)
     
     if goertzel_score > 0.45:
-        return (-0.2, 0.4)
+        return (-0.0653333333333333, 0.152)
     else:
         return (0.0, 0.0)
     
@@ -127,13 +142,13 @@ def score_webrtcvad (webrtcvad_score: float) -> tuple [float, float]:
         return (0.0, 0.0)
     
     if webrtcvad_score < 0.3:
-        return (0.45, -0.3)
+        return (0.147, -0.114)
     elif (webrtcvad_score >= 0.3) and (webrtcvad_score < 0.55):
-        return (0.2, -0.15)
+        return (0.0653333333333333, -0.057)
     elif (webrtcvad_score >= 0.55) and (webrtcvad_score <= 0.75):
         return (0.0, 0.0)
     else:
-        return (-0.25, 0.45)
+        return (-0.0816666666666667, 0.171)
 
 # -------------------------------------------------------
 # SCORING DE PITCH POR VENTANA DE 100 MS SIN DESVIACION 
@@ -141,13 +156,13 @@ def score_webrtcvad (webrtcvad_score: float) -> tuple [float, float]:
 def score_f0_pitch (f0_std: float, f0_avg: float, f0_n: int) -> tuple [float, float]:
       # agudo (media estable) -> humano
       if f0_avg is not None and f0_n >= 2 and f0_avg > 250:
-          return (0.6, -0.4)
+          return (0.196, -0.152)
       # expresivo -> humano
       if f0_std is not None and f0_std > 53:
-          return (0.4, -0.25)
+          return (0.130666666666667, -0.095)
       # monotono -> humano (gateado por muestras: usa el acumulado ya estable)
       if f0_std is not None and f0_n >= 15 and f0_std < 9.5:
-          return (0.5, -0.3)
+          return (0.163333333333333, -0.114)
       return (0.0, 0.0)
 # -------------------------------------------------------
 # SCORING DE PITCH POR VENTANA DE 500 MS CONs DESVIACION 
@@ -175,17 +190,17 @@ def score_human(rms_max, rms_avg, vad_ratio, f0_avg, rms_count, score_buzon, sco
         return (0.0,0.0)
     # Gate de energia: Cuando humano se queda callado pero hay ruido
     if rms_max < 0.0455:
-        return (0.6, -0.4)
+        return (0.196, -0.152)
     # Gate de pausas largas: Cuando humano se queda callado por pausas largas
     if rms_avg is not None and rms_avg < 0.038 and rms_max > 0.22:
-        return (0.6, -0.4)
+        return (0.196, -0.152)
     # Pitch bajo + pausas: Cuando humano se queda callado por pausas largas
     if (f0_avg is not None and vad_ratio is not None and f0_avg < 227 and vad_ratio < 0.38):
-        return (0.4, -0.25)
+        return (0.130666666666667, -0.095)
     
     if (rms_count is None or rms_count >=70 and vad_ratio is not None and vad_ratio < 0.55
-        and score_buzon < 0 and (score_human - score_buzon) >= 2.0):
-        return (0.6, -0.4)
+        and score_buzon < 0 and ((score_human/ 0.326667) - (score_buzon/ 0.38)) >= 2.0):
+        return (0.196, -0.152)
     return (0.0, 0.0)
 
 
@@ -339,7 +354,7 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
         # Si no tenemos la certeza, pasamos a Whisper para que transcriba y clasifique el audio acumulado en el buffer
         if len(cascada.ring_buffer) >= LIMIT_BUFFER_BYTES:
 
-            whisper_result = cascada.detect_whisper()
+            whisper_result = cascada.detect_()
             print(f"  WHISPER → {whisper_result['decision'].upper()}")
 
             payload_whisper={
@@ -740,7 +755,7 @@ class CascadaAMDClass:
         elif self.score_buzon >= BUZON_THRESHOLD:
             if rms_avg is not None and rms_avg < 0.005:
                 self.decision = None
-            elif self.score_buzon < 3.0 and  (self.ah_f0 >= 8 or self.ah_rms >= 10):
+            elif self.score_buzon < 0.98 and  (self.ah_f0 >= 2.61 or self.ah_rms >= 3.27):
                 self.decision = None
             else:
                 self.decision = "buzon"
@@ -788,6 +803,49 @@ class CascadaAMDClass:
 
 
 
+    # TRANSCRIPCION CON GPT-o4 MINI TRANSCRIBE
+    def transcribe_whi_gtp4_mini(self):
+        samples = np.frombuffer(self.ring_buffer, dtype=np.int16)
+
+        # Si no hay muestras, no se puede transcribir
+        if len(samples) == 0:
+            print("No hay muestras para transcribir con Whisper.")
+            return None
+        
+        # Normalizamos las muestras a float32
+        audio_f32 = samples.astype(np.float32) / 32768.0
+
+        # Resampleamos a 16000 Hz si es necesario
+        audio_16k = scipy.signal.resample_poly(audio_f32, 16000,self.sample_rate).astype(np.float32)
+
+        # Normalizamos el volumen: el audio telefonico es bajo y whisper espera audio normalizado.
+        # Subimos el pico a ~0.95 para que tiny escuche claro (mejora la transcripcion sin costo).
+        peak = np.max(np.abs(audio_16k))
+        if peak > 0:
+            audio_16k = (audio_16k * (0.95 / peak)).astype(np.float32)
+
+        wav_buffer = io.BytesIO()
+        
+        sf.write(wav_buffer, audio_16k, 16000, format="WAV")
+
+        wav_buffer.seek(0)
+
+        transcript = client.audio.transcriptions.create(
+            model="gpt-4o-mini-transcribe",
+            file=("audio.wav",wav_buffer, "audio/wav"),
+            lenguage="es"
+        )
+
+        text = transcript.text.lower().strip()
+        print(f" GPT text: '{text}'")
+
+        return text
+
+
+    # ------------------------------------------------------------------------------------------
+    #  COMENTADO DE MOMENTO POR GPT
+    # ------------------------------------------------------------------------------------------
+    """
     # Primero trasncribimos con Whisper
     def transcribe_with_whisper(self):
         samples = np.frombuffer(self.ring_buffer, dtype=np.int16)
@@ -822,6 +880,8 @@ class CascadaAMDClass:
         print(f"  WHISPER txt: '{text}'")
 
         return text
+    """
+
 
     def _norm(self, t):
       # quita tildes y pasa a minúsculas: "busón" -> "buson"
@@ -868,8 +928,9 @@ class CascadaAMDClass:
 
         
     # Tomamos la decision final de Whisper
-    def detect_whisper (self):
-        text =  self.transcribe_with_whisper()
+    def detect_ (self):
+        text =  self.transcribe_whi_gtp4_mini()
+        # text =  self.transcribe_with_whisper()
 
         result = self.classify_with_whisper(text)
 
