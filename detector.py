@@ -263,8 +263,8 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
         cascada.ring_buffer.extend(chunk)
 
         # Acumulamos en el buffer y lo limitamos a un tamaÃ±o maximo (ejm. 1500 ms)
-        if len(cascada.ring_buffer) > LIMIT_BUFFER_BYTES:
-            # Falback para llamar a Whisper
+        if len(cascada.ring_buffer) == LIMIT_BUFFER_BYTES:
+            # Falback para llamar a GPT y Whisper
             cascada.ring_buffer = cascada.ring_buffer[-LIMIT_BUFFER_BYTES:]
         
         # Jalamos funcion de analisis para una llamada
@@ -357,7 +357,7 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
         """
 
         # Llamamos al GPT, fallback de Whispr y por ultimo Backpressure de audio a Humano
-        if len(cascada.ring_buffer) >= LIMIT_BUFFER_BYTES:
+        if len(cascada.ring_buffer) == LIMIT_BUFFER_BYTES:
 
             result = None
             fuente = "gpt"
