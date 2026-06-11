@@ -23,31 +23,54 @@ from datetime import datetime
 import time
 
 import unicodedata
+import re
 
 
 WHISPER_MODEL = WhisperModel(
-    "/home/ubuntu/cashi/cashi-dbuzon-service/models/faster-whisper-base",
+    "tiny",
     device="cpu",
     compute_type="int8",
-    
     )
 
+# Keywords de buzon con variantes de typos de whisper-tiny
 MACHINE_KEYWORDS = [
-    "casilla de voz",
-    "deje su mensaje",
-    "despues de la señal",
-    "presione cualquier tecla",
-    "buzon",
-    "mensaje",
-    "tono",
+      "de voz", "comunicado con", "te has comunicado",
+      "casilla", "cacilla", "cassiye", "casiya", "cacilya", "castilla", "cocilla",
+      "transferida", "transferido", "transcedida", "torncerida",
+      "llamada sera", "llamada será", "llamada fera", "llamada cera",
+      "mensaje",
+      "buzon", "buzón", "busón", "buson",
+      "deja tu", "déjate", "dejate", "dejalmente", "déjame",
+      "deje", "grabar", "grabe",
+      "tono", "señal", "senal",
+      "tecla", "decla", "decala", "decada", "década", "décala", "décila", "trecle",
+      "presione", "precione", "preció", "precio", "prefió", "prefiero",
+      "cualquier", "terminar",
+      "despues del", "después del", "despues de", "después de",
+      "no se encuentra",
+      "no esta disponible", "no está disponible", "no disponible",
+      "numero marcado", "número marcado",
+      "desvio", "desvío", "contestador", "apagado",
+      "fuera de", "cobertura", "no atiende", "ahora no puede",
 ]
 
-HUMAN_KEYWORDS = [
-        "alo",
-        "hola",
-        "diga",
-        "bueno",
-        "si diga",
+# Buzones suelen dictar el numero llamado (6+ digitos seguidos)
+DIGIT_SEQUENCE = re.compile(r"\d{6,}")
+
+# Keywords humanas DECISIVAS (saludo corto = humano de verdad)
+HUMAN_DECISIVE = [
+      "alo", "aló", "aloo", "halo", "allo", "alou", "aroh", "aro",
+      "diga", "dígame", "digame", "diga me",
+      "bueno", "buano", "weno",
+      "buenos días", "buenos dias", "buenos dia", "weno dia", "buen dia",
+      "buenas tardes", "buena tarde", "buenas noches", "buena noche", "buenas",
+      "si diga", "sí diga", "sí dígame", "si digame",
+      "quien habla", "quién habla", "con quien", "con quién", "con quién hablo",
+]
+
+# Keywords humanas AMBIGUAS (buzones tambien dicen "hola")
+HUMAN_AMBIGUOUS = [
+      "hola","ola","ohla",
 ]
 
 app = FastAPI()
@@ -781,10 +804,17 @@ class CascadaAMDClass:
         # Resampleamos a 16000 Hz si es necesario
         audio_16k = scipy.signal.resample_poly(audio_f32, 16000,self.sample_rate).astype(np.float32)
 
-        segments, info = WHISPER_MODEL.transcribe(audio_16k, language="es", beam_size=1,
+        # Normalizamos el volumen: el audio telefonico es bajo y whisper espera audio normalizado.
+        # Subimos el pico a ~0.95 para que tiny escuche claro (mejora la transcripcion sin costo).
+        peak = np.max(np.abs(audio_16k))
+        if peak > 0:
+            audio_16k = (audio_16k * (0.95 / peak)).astype(np.float32)
+
+        segments, info = WHISPER_MODEL.transcribe(audio_16k, language="es", beam_size=5,
                                             no_speech_threshold=1.0, vad_filter=False,
                                             condition_on_previous_text=False,
-                                            initial_prompt="Llamada telefónica en español, Perú.")
+                                            initial_prompt=("Buzon de voz casilla mensaje tono tecla "
+                                                            "transferida disponible alo hola diga"))
         
         
         seg_list = list(segments)                                   # <-- consume UNA vez
@@ -800,22 +830,42 @@ class CascadaAMDClass:
     # Clasificamos la transcripcion de Whisper buscando keywords de buzon y humano
     def classify_with_whisper(self, text: str) -> dict:
         if not text:
-          return {"decision": "desconocido", "reason": "transcripcion vacia"}
-        t = self._norm(text)
+          return {"decision": "buzon", "reason": "sin transcripcion (audio no claro)", "transcripcion": ""}
+        
+        t = text.lower()
+        machine_hits  = [kw for kw in MACHINE_KEYWORDS if kw in t]
+        decisive_hits = [kw for kw in HUMAN_DECISIVE  if kw in t]
+        ambiguous_hits = [kw for kw in HUMAN_AMBIGUOUS if kw in t]
+        word_count = len(t.split())
+        has_number = bool(DIGIT_SEQUENCE.search(t))
 
-        machine = ["buzon", "buson", "casilla", "comunicado", "mensaje",
-                    "tono", "senal", "deje su mensaje", "no se encuentra",
-                    "no disponible", "contestador", "buzon de voz"]
-        for k in machine:
-            if k in t:
-                return {"decision": "buzon", "reason": f"keyword '{k}'", "transcripcion": text}
+        # 1. Keyword explicita de buzon
+        if machine_hits:
+            return {"decision": "buzon", "reason": f"buzon kw={machine_hits}", "transcripcion": text}
 
-        human = ["alo", "hola", "diga", "bueno", "buenas", "quien habla", "si diga"]
-        for k in human:
-            if k in t:
-                return {"decision": "humano", "reason": f"keyword '{k}'", "transcripcion": text}
+        # 2. Buzon dictando numero de telefono
+        if has_number:
+            return {"decision": "buzon", "reason": "buzon dictando numero", "transcripcion": text}
 
-        return {"decision": "desconocido", "reason": "sin keywords", "transcription": text}
+        # 3. Keyword humana decisiva: corto=humano, largo=buzon que esquivo keywords
+        if decisive_hits:
+            if word_count <= 4:
+                return {"decision": "humano", "reason": f"humano decisivo {decisive_hits} ({word_count}pal)", "transcripcion": text}
+            return {"decision": "buzon", "reason": f"saludo largo con kw humana ({word_count}pal)", "transcripcion": text}
+
+        # 4. Keyword ambigua ("hola"): corto=humano, largo=buzon
+        if ambiguous_hits:
+            if word_count <= 3:
+                return {"decision": "humano", "reason": f"hola ambiguo ({word_count}pal)", "transcripcion": text}
+            return {"decision": "buzon", "reason": f"hola en texto largo ({word_count}pal)", "transcripcion": text}
+
+        # 5. Sin keywords + texto breve -> humano
+        if word_count <= 3:
+            return {"decision": "humano", "reason": f"voz breve sin keywords ({word_count}pal)", "transcripcion": text}
+
+        # 6. Sin keywords + texto largo -> buzon (typos severos que esquivaron todo)
+        return {"decision": "buzon", "reason": f"texto largo sin keywords ({word_count}pal)", "transcripcion": text}
+
         
     # Tomamos la decision final de Whisper
     def detect_whisper (self):
