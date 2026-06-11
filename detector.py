@@ -131,7 +131,7 @@ def score_numpy (numpy_rms: float) -> tuple [float, float]:
     if numpy_rms > 0.06:
         return (-0.0326666666666667, 0.076)
     elif (numpy_rms > 0.02):
-        return (0.094, -0.038)
+        return (0.049, -0.038)
     else:
         return (0.0, 0.0)
     
@@ -263,7 +263,7 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
         cascada.ring_buffer.extend(chunk)
 
         # Acumulamos en el buffer y lo limitamos a un tamaÃ±o maximo (ejm. 1500 ms)
-        if len(cascada.ring_buffer) == LIMIT_BUFFER_BYTES:
+        if len(cascada.ring_buffer) >= LIMIT_BUFFER_BYTES:
             # Falback para llamar a GPT y Whisper
             cascada.ring_buffer = cascada.ring_buffer[-LIMIT_BUFFER_BYTES:]
         
@@ -357,7 +357,7 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
         """
 
         # Llamamos al GPT, fallback de Whispr y por ultimo Backpressure de audio a Humano
-        if len(cascada.ring_buffer) == LIMIT_BUFFER_BYTES:
+        if len(cascada.ring_buffer) >= LIMIT_BUFFER_BYTES:
 
             result = None
             fuente = "gpt"
