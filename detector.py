@@ -35,7 +35,7 @@ import soundfile as sf
 load_dotenv()
 
 client = OpenAI(
-    api_key="OPENAI_API_KEY")
+    api_key=os.getenv("OPENAI_API_KEY"))
 
 
 
