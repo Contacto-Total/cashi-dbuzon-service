@@ -35,7 +35,9 @@ import soundfile as sf
 load_dotenv()
 
 client = OpenAI(
-    api_key=os.getenv("OPENAI_API_KEY"))
+    api_key=os.getenv("OPENAI_API_KEY"),
+    timeout=10.0,
+    max_retries=1)
 
 
 
@@ -349,33 +351,45 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
             break
         """
 
-        # COMENTAOD PARA QUE NO PASE A WHISPER PARA PRUEBAS
-
-        # Si no tenemos la certeza, pasamos a Whisper para que transcriba y clasifique el audio acumulado en el buffer
+        # Llamamos al GPT, fallback de Whispr y por ultimo Backpressure de audio a Humano
         if len(cascada.ring_buffer) >= LIMIT_BUFFER_BYTES:
 
-            whisper_result = cascada.detect_()
-            print(f"  GPT → {whisper_result['decision'].upper()}")
+            result = None
+            fuente = "gpt"
+            try:
+                result = cascada.detect_()
+            except Exception as e:
+                print (f"La API de GPT falló({type(e).__name__})")
+                fuente = "whisper"
 
-            payload_whisper={
+                try:
+                    result = cascada.detect_whisper()
+                except Exception as e:
+                    print (f"Whisper falló({type(e).__name__})")
+                    result = None
+            if not result or result.get("decision") not in ("buzon","humano"):
+                result = {  "decision": "humano",
+                          "reason": "Sin transctipcion - Conectar",
+                          "transcripcion": ""}
+                fuente = "fallsafe"
+            print(f"  {fuente} → {result['decision'].upper()}")
+
+            payload_transcript={
                 "type": "decision",
                 "source": "whisper",
 
                 **event_base,
 
                 "decision": {
-                    "result": whisper_result["decision"],
-                    "reason": whisper_result.get("reason"),
-                    "transcription": whisper_result.get("transcripcion"),
+                    "result": result["decision"],
+                    "reason": result.get("reason"),
+                    "transcription": result.get("transcripcion"),
                     "decided_at_chunk": contador_chunk,
                     "decided_at_ms": elapsed_ms
                 }
             }
 
-            # Comentado temporal
-            #print(payload_whisper)
-
-            await websocket.send_json(payload_whisper)
+            await websocket.send_json(payload_transcript)
 
             await websocket.close()
             break
@@ -844,6 +858,9 @@ class CascadaAMDClass:
         )
 
         text = transcript.text.lower().strip()
+        if hasattr(transcript, "usage") and transcript.usage:
+            u = transcript.usage
+            print(f" tokens consumidos: {transcript.usage.total_tokens}")
         print(f" GPT text: '{text}'")
 
         return text
@@ -852,7 +869,6 @@ class CascadaAMDClass:
     # ------------------------------------------------------------------------------------------
     #  COMENTADO DE MOMENTO POR GPT
     # ------------------------------------------------------------------------------------------
-    """
     # Primero trasncribimos con Whisper
     def transcribe_with_whisper(self):
         samples = np.frombuffer(self.ring_buffer, dtype=np.int16)
@@ -887,7 +903,6 @@ class CascadaAMDClass:
         print(f"  WHISPER txt: '{text}'")
 
         return text
-    """
 
 
     def _norm(self, t):
@@ -926,24 +941,58 @@ class CascadaAMDClass:
                 return {"decision": "humano", "reason": f"hola ambiguo ({word_count}pal)", "transcripcion": text}
             return {"decision": "buzon", "reason": f"hola en texto largo ({word_count}pal)", "transcripcion": text}
 
-        # 5. Sin keywords + texto breve -> humano
-        if word_count <= 3:
-            return {"decision": "humano", "reason": f"voz breve sin keywords ({word_count}pal)", "transcripcion": text}
+        # 5. No reconocio nada de la trasncripcion
+        return {"decision": "duda", "reason": f"Sin text0 reconocible ({word_count}pal)", "transcripcion": text}
 
-        # 6. Sin keywords + texto largo -> buzon (typos severos que esquivaron todo)
-        return {"decision": "buzon", "reason": f"texto largo sin keywords ({word_count}pal)", "transcripcion": text}
+    def classify_with_gpt (self, text: str) -> dict:
+        """ gpt o4 mini para la decsion de audio que quedo en duda luego de la comparacion de keywords"""
+        completion = client.chat-completions.create(
+            model="gpt-4o-mini",
+            temperature=0,
+            max_tokens=5,
+            messages=[
+                {"role": "system", "content":
+                  "Clasificas el inicio de una llamada telefonica en Peru. Responde UNA "
+                  "sola palabra, sin puntuacion: 'humano' si contesto una persona real "
+                  "(alo, hola, diga, si, buenas, quien habla), o 'buzon' si es un "
+                  "contestador o mensaje grabado (deje su mensaje, despues del tono, "
+                  "el numero no esta disponible, casilla de voz)."},
+              {"role": "user", "content": f'Transcripcion: "{text}"'},
+            ],
+        )
+        ans = completion.choices[0].message.content.lower().strip()
+        print(f" GPT decision: '{ans}'")
+        if "buzon" in ans or "buzón" in ans:
+            return {"decision": "buzon", "reason": "gpt o4 mini", "transcripcion": text}
+        if "humano" in ans or "human" in ans:
+            return {"decision": "humano", "reason": "gpt o4 mini", "transcripcion": text}
+        return {"decision": "duda", "reason": f"gpt indeciso({ans})", "transcripcion": text}
 
+    def cascada_classify (self, text: str) -> dict:
+        # Primero clasificador de Python
+        if result["decision"] in ("buzon", "humano"):
+            return result
         
-    # Tomamos la decision final de Whisper
+        # Segundo clasificador de GPT
+        try:
+            result = self.classify_with_gpt(text)
+            if result["decision"] in ("buzon", "humano"):
+                return result
+        except Exception as e:
+            print(f"GPT clasificó mal: ({type(e).__name__})")
+
+        return {"decision": "humano", "reason": "fallback de clasficador", "transcripcion": text}
+
+    # Tomamos la decision con GPT
     def detect_ (self):
         text =  self.transcribe_whi_gtp4_mini()
-        # text =  self.transcribe_with_whisper()
 
-        result = self.classify_with_whisper(text)
-
-        return result
+        return self.cascada_classify(text)
     
-
+    # FALLBACK DE WHISPER SI GPT NO FUNCIONA
+    def detect_whisper (self):
+        text =  self.transcribe_with_whisper()
+        return self.cascada_classify(text)
 
 if __name__ == "__main__":
     print("Iniciando servidor de AMD en WebSocket...")
