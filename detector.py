@@ -381,7 +381,7 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
 
             payload_transcript={
                 "type": "decision",
-                "source": "whisper",
+                "source": fuente,
 
                 **event_base,
 
