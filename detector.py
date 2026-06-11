@@ -833,7 +833,7 @@ class CascadaAMDClass:
         transcript = client.audio.transcriptions.create(
             model="gpt-4o-mini-transcribe",
             file=("audio.wav",wav_buffer, "audio/wav"),
-            lenguage="es"
+            language="es"
         )
 
         text = transcript.text.lower().strip()
