@@ -59,20 +59,20 @@ MACHINE_KEYWORDS = [
       "de voz", "comunicado con", "te has comunicado",
       "casilla", "cacilla", "cassiye", "casiya", "cacilya", "castilla", "cocilla",
       "transferida", "transferido", "transcedida", "torncerida",
-      "llamada sera", "llamada será", "llamada fera", "llamada cera",
+      "llamada sera", "llamada serÃ¡", "llamada fera", "llamada cera",
       "mensaje",
-      "buzon", "buzón", "busón", "buson",
-      "deja tu", "déjate", "dejate", "dejalmente", "déjame",
+      "buzon", "buzÃ³n", "busÃ³n", "buson",
+      "deja tu", "dÃ©jate", "dejate", "dejalmente", "dÃ©jame",
       "deje", "grabar", "grabe",
-      "tono", "señal", "senal",
-      "tecla", "decla", "decala", "decada", "década", "décala", "décila", "trecle",
-      "presione", "precione", "preció", "precio", "prefió", "prefiero",
+      "tono", "seÃ±al", "senal",
+      "tecla", "decla", "decala", "decada", "dÃ©cada", "dÃ©cala", "dÃ©cila", "trecle",
+      "presione", "precione", "preciÃ³", "precio", "prefiÃ³", "prefiero",
       "cualquier", "terminar",
-      "despues del", "después del", "despues de", "después de",
+      "despues del", "despuÃ©s del", "despues de", "despuÃ©s de",
       "no se encuentra",
-      "no esta disponible", "no está disponible", "no disponible",
-      "numero marcado", "número marcado",
-      "desvio", "desvío", "contestador", "apagado",
+      "no esta disponible", "no estÃ¡ disponible", "no disponible",
+      "numero marcado", "nÃºmero marcado",
+      "desvio", "desvÃ­o", "contestador", "apagado",
       "fuera de", "cobertura", "no atiende", "ahora no puede",
 ]
 
@@ -81,13 +81,13 @@ DIGIT_SEQUENCE = re.compile(r"\d{6,}")
 
 # Keywords humanas DECISIVAS (saludo corto = humano de verdad)
 HUMAN_DECISIVE = [
-      "alo", "aló", "aloo", "halo", "allo", "alou", "aroh", "aro",
-      "diga", "dígame", "digame", "diga me",
+      "alo", "alÃ³", "aloo", "halo", "allo", "alou", "aroh", "aro",
+      "diga", "dÃ­game", "digame", "diga me",
       "bueno", "buano", "weno",
-      "buenos días", "buenos dias", "buenos dia", "weno dia", "buen dia",
+      "buenos dÃ­as", "buenos dias", "buenos dia", "weno dia", "buen dia",
       "buenas tardes", "buena tarde", "buenas noches", "buena noche", "buenas",
-      "si diga", "sí diga", "sí dígame", "si digame",
-      "quien habla", "quién habla", "con quien", "con quién", "con quién hablo",
+      "si diga", "sÃ­ diga", "sÃ­ dÃ­game", "si digame",
+      "quien habla", "quiÃ©n habla", "con quien", "con quiÃ©n", "con quiÃ©n hablo",
 ]
 
 # Keywords humanas AMBIGUAS (buzones tambien dicen "hola")
@@ -112,7 +112,7 @@ LIMIT_BUFFER_BYTES = int(
 # ARRAY DE FRECUENCIAS EN LAS QUE DETECTAMOS EL BUZON
 BUZON_FREQS_HZ = [350.0, 440.0, 480.0, 620.0, 950.0, 1400.0, 1800.0]
 
-# TOLERANCIA DE FRECUENCIA PARA DETECTAR EL BUZON (EJM. ±30Hz)
+# TOLERANCIA DE FRECUENCIA PARA DETECTAR EL BUZON (EJM. Â±30Hz)
 BUZON_FREQ_TOLERANCE_HZ = 30.0
 
 # LIMITE DE PUNTAJE PARA DECIDIR SI ES HUMANO
@@ -244,7 +244,7 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
     
     await websocket.accept()
 
-    print(f"\n▶ llamada {call_id}")
+    print(f"\nâ–¶ llamada {call_id}")
 
     
     # PRMERO RECIBE JSON DE METADATA    
@@ -262,7 +262,7 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
 
         cascada.ring_buffer.extend(chunk)
 
-        # Acumulamos en el buffer y lo limitamos a un tamaño maximo (ejm. 1500 ms)
+        # Acumulamos en el buffer y lo limitamos a un tamaÃ±o maximo (ejm. 1500 ms)
         if len(cascada.ring_buffer) > LIMIT_BUFFER_BYTES:
             # Falback para llamar a Whisper
             cascada.ring_buffer = cascada.ring_buffer[-LIMIT_BUFFER_BYTES:]
@@ -325,7 +325,7 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
             
             await websocket.send_json(payload_decision)
 
-            print(f"  DSP → {result['decision'].upper()} | human={result['scores']['human']:.2f} buzon={result['scores']['buzon']:.2f} | chunk {contador_chunk}")
+            print(f"  DSP â†’ {result['decision'].upper()} | human={result['scores']['human']:.2f} buzon={result['scores']['buzon']:.2f} | chunk {contador_chunk}")
 
             await websocket.close()
             break
@@ -364,20 +364,20 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
             try:
                 result = await cascada.detect_()
             except Exception as e:
-                print (f"La API de GPT falló({type(e).__name__})")
+                print (f"La API de GPT fallÃ³({type(e).__name__})")
                 fuente = "whisper"
 
                 try:
                     result = await cascada.detect_whisper()
                 except Exception as e:
-                    print (f"Whisper falló({type(e).__name__})")
+                    print (f"Whisper fallÃ³({type(e).__name__})")
                     result = None
             if not result or result.get("decision") not in ("buzon","humano"):
                 result = {  "decision": "humano",
                           "reason": "Sin transctipcion - Conectar",
                           "transcripcion": ""}
                 fuente = "fallsafe"
-            print(f"  {fuente} → {result['decision'].upper()}")
+            print(f"  {fuente} â†’ {result['decision'].upper()}")
 
             payload_transcript={
                 "type": "decision",
@@ -539,10 +539,10 @@ class CascadaAMDClass:
         # Conversion a bytes para procesar con webrtcvad
         audio_bytes = sample_i16.tobytes()
 
-        # Calculamos el tamaño de cada frame en bytes (ejm. 20ms de audio que son 320 bytes)
+        # Calculamos el tamaÃ±o de cada frame en bytes (ejm. 20ms de audio que son 320 bytes)
         frame_bytes = int(sample_rate * frame / 1000) * 2 
 
-        # Evtamos procesar ventanas menores al tamaño del frame (ej. 20ms)
+        # Evtamos procesar ventanas menores al tamaÃ±o del frame (ej. 20ms)
         if len(audio_bytes) < frame_bytes:
             return 0.0
         
@@ -600,7 +600,7 @@ class CascadaAMDClass:
         pitches = []
         for i in range(0, len(samples32)-frame + 1, step):
             p = float(self.pitch_detector(samples32[i:i+frame])[0])
-            if 70 <= p <= 400:  # Filtramos pitches fuera del rango típico de voz humana
+            if 70 <= p <= 400:  # Filtramos pitches fuera del rango tÃ­pico de voz humana
                 pitches.append(p)
 
         if len(pitches) < 4:
@@ -632,13 +632,13 @@ class CascadaAMDClass:
 
 
     #--------------------------------------------------------
-    # Aqui empieza la gamificacion de scores, convertimos las detecciones en scores de humano y buzón
+    # Aqui empieza la gamificacion de scores, convertimos las detecciones en scores de humano y buzÃ³n
     #--------------------------------------------------------
 
     # Funcion principal para junte de analisis de audio y gamificacion de scores
     def analize_audio (self):
 
-        # print(f"Analizando buffer de tamaño: {len(self.ring_buffer)}")
+        # print(f"Analizando buffer de tamaÃ±o: {len(self.ring_buffer)}")
 
 
         #--------------------------------------------------------
@@ -714,30 +714,30 @@ class CascadaAMDClass:
             self.f0_n += 1
         # Media movil de F0 para toda la llamada (acumulado)
         f0_avg_run = self.f0_sum / self.f0_n if self.f0_n > 0 else None
-        if len(self.f0_history) >= 6:  # Mantener solo las últimas 6 mediciones de F0
+        if len(self.f0_history) >= 6:  # Mantener solo las Ãºltimas 6 mediciones de F0
             f0_std = float(np.std(self.f0_history))
         else: 
             f0_std = None
 
 
         #--------------------------------------------------------
-        # Convertimos las detecciones en scores de humano y buzón
+        # Convertimos las detecciones en scores de humano y buzÃ³n
         #--------------------------------------------------------
 
-        # Score de humano y buzón usando Numpy
+        # Score de humano y buzÃ³n usando Numpy
         dh_numpy, db_numpy = score_numpy(rms_avg)
         self.ah_rms += dh_numpy
 
-        # Score de humano y buzón usando Goertzel
+        # Score de humano y buzÃ³n usando Goertzel
         dh_goertzel, db_goertzel = score_goertzel(goertzel)
 
-        # Score de humano y buzón usando WebRTC VAD
+        # Score de humano y buzÃ³n usando WebRTC VAD
         dh_webrtcvad, db_webrtcvad = score_webrtcvad(vad_ratio)
         # Gate de energia: sin energia, el VAD no es confiable -> no vota
         if rms_avg is not None and rms_avg < 0.005:
             dh_webrtcvad, db_webrtcvad = 0.0, 0.0
 
-        # Score de humano y buzón usando F0 Pitch
+        # Score de humano y buzÃ³n usando F0 Pitch
         dh_f0_pitch, db_f0_pitch = score_f0_pitch(f0_std, f0_avg_run, self.f0_n)
         self.ah_f0 += dh_f0_pitch
         
@@ -758,7 +758,7 @@ class CascadaAMDClass:
             dh_f0_pitch * weight_f0_pitch
         )
 
-        # Ponderado los scores para buzón
+        # Ponderado los scores para buzÃ³n
         self.score_buzon += (
             db_numpy * weight_numpy + 
             db_goertzel * weight_goertzel + 
@@ -854,10 +854,10 @@ class CascadaAMDClass:
             file=("audio.wav",wav_buffer, "audio/wav"),
             language="es",
             prompt=(
-                "Transcribe en español de Perú. NO traduzcas al inglés. "
-                "Es una llamada telefónica. Frases típicas: buzón de voz, "
-                "casilla, deje su mensaje después del tono, presione una tecla, "
-                "el número que marcó no está disponible, aló, hola, diga, buenas."
+                "Transcribe en espaÃ±ol de PerÃº. NO traduzcas al inglÃ©s. "
+                "Es una llamada telefÃ³nica. Frases tÃ­picas: buzÃ³n de voz, "
+                "casilla, deje su mensaje despuÃ©s del tono, presione una tecla, "
+                "el nÃºmero que marcÃ³ no estÃ¡ disponible, alÃ³, hola, diga, buenas."
             ),
             temperature=0
         )
@@ -911,7 +911,7 @@ class CascadaAMDClass:
 
 
     def _norm(self, t):
-      # quita tildes y pasa a minúsculas: "busón" -> "buson"
+      # quita tildes y pasa a minÃºsculas: "busÃ³n" -> "buson"
       return unicodedata.normalize("NFKD", t).encode("ascii", "ignore").decode().lower()
 
     # Clasificamos la transcripcion de Whisper buscando keywords de buzon y humano
@@ -966,7 +966,7 @@ class CascadaAMDClass:
         )
         ans = completion.choices[0].message.content.lower().strip()
         print(f" GPT decision: '{ans}'")
-        if "buzon" in ans or "buzón" in ans:
+        if "buzon" in ans or "buzÃ³n" in ans:
             return {"decision": "buzon", "reason": "gpt o4 mini", "transcripcion": text}
         if "humano" in ans or "human" in ans:
             return {"decision": "humano", "reason": "gpt o4 mini", "transcripcion": text}
@@ -979,15 +979,14 @@ class CascadaAMDClass:
         if result["decision"] in ("buzon", "humano"):
             return result
         
-        result = await self.classify_with_gpt(text)
 
         # Segundo clasificador de GPT
         try:
-            result = self.classify_with_gpt(text)
+            result = await self.classify_with_gpt(text)
             if result["decision"] in ("buzon", "humano"):
                 return result
         except Exception as e:
-            print(f"GPT clasificó mal: ({type(e).__name__})")
+            print(f"GPT clasificÃ³ mal: ({type(e).__name__})")
 
         return {"decision": "humano", "reason": "fallback de clasficador", "transcripcion": text}
 
@@ -1004,6 +1003,5 @@ class CascadaAMDClass:
 
 if __name__ == "__main__":
     print("Iniciando servidor de AMD en WebSocket...")
-
-    uvicorn.run(app, host="0.0.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                .0",
+    uvicorn.run(app, host="0.0.0.0",
                 port=8765)
