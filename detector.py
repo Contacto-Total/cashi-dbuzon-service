@@ -28,13 +28,18 @@ from dotenv import load_dotenv
 import os
 
 # Import para GPT MINI TRANSCRIBE
-from openai import OpenAI
+from openai import AsyncOpenAI
 import io
 import soundfile as sf
 
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+
+WHISPER_POOL = ThreadPoolExecutor(max_workers=3)
+
 load_dotenv()
 
-client = OpenAI(
+client = AsyncOpenAI(
     api_key=os.getenv("OPENAI_API_KEY"),
     timeout=10.0,
     max_retries=1)
@@ -357,13 +362,13 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
             result = None
             fuente = "gpt"
             try:
-                result = cascada.detect_()
+                result = await cascada.detect_()
             except Exception as e:
                 print (f"La API de GPT falló({type(e).__name__})")
                 fuente = "whisper"
 
                 try:
-                    result = cascada.detect_whisper()
+                    result = await cascada.detect_whisper()
                 except Exception as e:
                     print (f"Whisper falló({type(e).__name__})")
                     result = None
@@ -818,7 +823,7 @@ class CascadaAMDClass:
 
 
     # TRANSCRIPCION CON GPT-o4 MINI TRANSCRIBE
-    def transcribe_whi_gtp4_mini(self):
+    async def transcribe_whi_gtp4_mini(self):
         samples = np.frombuffer(self.ring_buffer, dtype=np.int16)
 
         # Si no hay muestras, no se puede transcribir
@@ -844,7 +849,7 @@ class CascadaAMDClass:
 
         wav_buffer.seek(0)
 
-        transcript = client.audio.transcriptions.create(
+        transcript = await client.audio.transcriptions.create(
             model="gpt-4o-mini-transcribe",
             file=("audio.wav",wav_buffer, "audio/wav"),
             language="es",
@@ -944,12 +949,11 @@ class CascadaAMDClass:
         # 5. No reconocio nada de la trasncripcion
         return {"decision": "duda", "reason": f"Sin text0 reconocible ({word_count}pal)", "transcripcion": text}
 
-    def classify_with_gpt (self, text: str) -> dict:
+    async def classify_with_gpt (self, text: str) -> dict:
         """ gpt o4 mini para la decsion de audio que quedo en duda luego de la comparacion de keywords"""
-        completion = client.chat-completions.create(
+        completion = await client.chat.completions.create(
             model="gpt-4o-mini",
             temperature=0,
-            max_tokens=5,
             messages=[
                 {"role": "system", "content":
                   "Clasificas el inicio de una llamada telefonica en Peru. Responde UNA "
@@ -968,11 +972,15 @@ class CascadaAMDClass:
             return {"decision": "humano", "reason": "gpt o4 mini", "transcripcion": text}
         return {"decision": "duda", "reason": f"gpt indeciso({ans})", "transcripcion": text}
 
-    def cascada_classify (self, text: str) -> dict:
+    async def cascada_classify (self, text: str) -> dict:
+        result = self.classify_with_whisper(text)
+        
         # Primero clasificador de Python
         if result["decision"] in ("buzon", "humano"):
             return result
         
+        result = await self.classify_with_gpt(text)
+
         # Segundo clasificador de GPT
         try:
             result = self.classify_with_gpt(text)
@@ -984,18 +992,18 @@ class CascadaAMDClass:
         return {"decision": "humano", "reason": "fallback de clasficador", "transcripcion": text}
 
     # Tomamos la decision con GPT
-    def detect_ (self):
-        text =  self.transcribe_whi_gtp4_mini()
-
-        return self.cascada_classify(text)
+    async def detect_ (self):
+        text =  await self.transcribe_whi_gtp4_mini()
+        return await self.cascada_classify(text)
     
     # FALLBACK DE WHISPER SI GPT NO FUNCIONA
-    def detect_whisper (self):
-        text =  self.transcribe_with_whisper()
-        return self.cascada_classify(text)
+    async def detect_whisper (self):
+        loop = asyncio.get_event_loop()
+        text = await loop.run_in_executor(WHISPER_POOL, self.transcribe_with_whisper)
+        return await self.cascada_classify(text)
 
 if __name__ == "__main__":
     print("Iniciando servidor de AMD en WebSocket...")
 
-    uvicorn.run(app, host="0.0.0.0",
+    uvicorn.run(app, host="0.0.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                .0",
                 port=8765)
