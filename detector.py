@@ -359,24 +359,26 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
         # Llamamos al GPT, fallback de Whispr y por ultimo Backpressure de audio a Humano
         if len(cascada.ring_buffer) >= LIMIT_BUFFER_BYTES:
 
-            result = None
+            # === MODO PRUEBA: NO llama a GPT (no gasta creditos), solo marca que paso ===
+            result = {"decision": "sindetectar", "reason": "modo prueba - paso a gpt", "transcripcion": ""}
             fuente = "gpt"
-            try:
-                result = await cascada.detect_()
-            except Exception as e:
-                print (f"La API de GPT fallÃ³({type(e).__name__})")
-                fuente = "whisper"
 
-                try:
-                    result = await cascada.detect_whisper()
-                except Exception as e:
-                    print (f"Whisper fallÃ³({type(e).__name__})")
-                    result = None
-            if not result or result.get("decision") not in ("buzon","humano"):
-                result = {  "decision": "humano",
-                          "reason": "Sin transctipcion - Conectar",
-                          "transcripcion": ""}
-                fuente = "fallsafe"
+            # === MODO REAL: comenta las 2 lineas de arriba y descomenta esto para volver a usar GPT ===
+            # result = None
+            # fuente = "gpt"
+            # try:
+            #     result = await cascada.detect_()
+            # except Exception as e:
+            #     print(f"La API de GPT fallo ({type(e).__name__})")
+            #     fuente = "whisper"
+            #     try:
+            #         result = await cascada.detect_whisper()
+            #     except Exception as e:
+            #         print(f"Whisper fallo ({type(e).__name__})")
+            #         result = None
+            # if not result or result.get("decision") not in ("buzon","humano"):
+            #     result = {"decision": "humano", "reason": "Sin transcripcion - Conectar", "transcripcion": ""}
+            #     fuente = "fallsafe"
             print(f"  {fuente} â†’ {result['decision'].upper()}")
 
             payload_transcript={
