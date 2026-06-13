@@ -151,11 +151,11 @@ def score_webrtcvad (webrtcvad_score: float) -> tuple [float, float]:
     if webrtcvad_score < 0.3:
         return (0.147, -0.114)
     elif (webrtcvad_score >= 0.3) and (webrtcvad_score < 0.55):
-        return (0.0653333333333333, -0.057)
+        return (0.055533333, -0.057)
     elif (webrtcvad_score >= 0.55) and (webrtcvad_score <= 0.75):
         return (0.0, 0.0)
     else:
-        return (-0.0816666666666667, 0.171)
+        return (-0.0816666666666667, 0.14535)
 
 # -------------------------------------------------------
 # SCORING DE PITCH POR VENTANA DE 100 MS SIN DESVIACION 
