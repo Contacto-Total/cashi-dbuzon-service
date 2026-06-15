@@ -17,8 +17,14 @@ feed_chunk() se llama UNA VEZ POR CADA CHUNK DE 20 ms. En CADA llamada:
   5) decide si ya puede cortar.
 O sea: el análisis es CONTINUO, cada 20 ms, igual que tu diseño original.
 Los 2000 ms NO son "esperar y recién ahí analizar": son la FECHA LÍMITE.
-Si en cualquier tick ya está segurísimo de que es máquina, corta antes.
-Si llega a 2000 ms sin certeza de máquina -> lo trata como humano -> STT.
+
+En la fecha límite se clasifica en TRES destinos (tu esquema de dos umbrales
++ incertidumbre):
+  p_human >= 0.98  -> HUMANO  : directo al asesor (se salta el STT)
+  p_human <= 0.02  -> BUZÓN   : colgar / dejar mensaje
+  en medio         -> STT     : incertidumbre, lo deciden STT + LLM
+(Nota: tu buzón original era "no-humano >= 95%" = p_human <= 0.05, pero a 0.05
+se pierde 1 humano; por eso el buzón quedó en 0.02 ≈ 98% de confianza.)
 
 Lo único que cambió respecto a tu sumador de puntos: el paso (3)-(4). Antes
 sumabas puntos por tick (y dos ticks de silencio sumaban doble). Ahora cuentas
@@ -47,11 +53,16 @@ except Exception:
 
 # --- Modelo calibrado en ventana de 2000 ms (entrenado en los 464 archivos) ---
 # Orden: [RMS_energy, RMS_hi, VAD_voiced, GOE_tone, F0_std_hi]
+# Precisión COMPLETA, idéntica a amd_final_model.json (la fuente de verdad).
+# No redondear: si editas estos números, edita también el JSON (y viceversa).
 MODEL = {
-    "mu":   [0.4568, 0.2301, 0.3737, 0.0515, 0.2445],
-    "sd":   [0.2618, 0.2389, 0.2355, 0.0348, 0.2730],
-    "coef": [-1.531, 1.281, -3.194, -0.944, 1.790],
-    "b0":   -0.918,
+    "mu":   [0.4568312434691746, 0.2301462904911182, 0.37367206548241033,
+             0.051506443747823226, 0.2444542091382707],
+    "sd":   [0.26177556001144264, 0.238938962714524, 0.23550205437603539,
+             0.03483800862486579, 0.27299164590499875],
+    "coef": [-1.5309755822130389, 1.2807213149613483, -3.194310863299281,
+             -0.9442103123734442, 1.7897188490047853],
+    "b0":   -0.9178130745334432,
 }
 
 
@@ -81,12 +92,21 @@ class AMDConfig:
     t_min_ms: int = 800               # no cortar buzón antes (early = poco fiable)
     t_max_ms: int = 2000              # FECHA LÍMITE: aquí se fuerza el hand-off
 
-    # Cortar BUZÓN solo si p_human <= p_buzon. Muy bajo a propósito: con 0.02
-    # NO se perdió ningún humano en los 464 archivos (el humano más bajo quedó
-    # en 0.028), y aún así se atrapa ~22% de las máquinas obvias. El resto pasa
-    # a STT (tu red de seguridad). Súbelo solo si te molesta que máquinas pasen
-    # a STT (a ti no te molesta).
+    # --- TRES CUBOS (tu diseño original: dos umbrales + incertidumbre) ---
+    # En la fecha límite se clasifica en uno de tres destinos:
+    #   p_human <= p_buzon          -> BUZÓN  (colgar / voicemail)
+    #   p_human >= p_human_decide   -> HUMANO (directo al asesor, se salta STT)
+    #   en medio (incertidumbre)    -> STT    (STT + LLM deciden)
+    #
+    # p_human_decide = 0.98 es tu "confianza humano >= 98%". Con los datos, solo
+    # 1 máquina supera 0.98 (llega al asesor directo); 69 humanos pasan directo.
+    #
+    # OJO con p_buzon: tu idea original era "no-humano >= 95%" (p_human <= 0.05),
+    # pero a 0.05 se PIERDE 1 humano. Por eso lo dejo en 0.02 (equivale a exigir
+    # ~98% de confianza también para el buzón): 0 humanos perdidos en los 464
+    # archivos (el humano más bajo quedó en 0.028) y aún atrapa ~22% de máquinas.
     p_buzon: float = 0.02
+    p_human_decide: float = 0.98
 
     # Cortes tempranos: por defecto OFF. Cortar buzón antes de la fecha límite
     # pierde humanos, porque un humano puede tener un bajón TRANSITORIO de
@@ -96,17 +116,12 @@ class AMDConfig:
     # más que perder algún humano (no es tu caso).
     allow_early_cut: bool = False
 
-    # (Opcional) enrutar humano al STT apenas estás segurísimo, para bajar latencia.
-    # En tu flujo "humano" y "no sé" van al mismo lugar (STT), así que esto solo
-    # adelanta el hand-off; si lo dejas en 1.0 nunca corta humano antes y todos
-    # los no-buzón salen recién en t_max.
-    p_human_early: float = 1.0
-
 
 class Label(Enum):
-    HUMAN = "HUMAN"      # -> STT -> asesor
-    BUZON = "BUZON"      # -> colgar / dejar mensaje
-    UNDECIDED = "UNDECIDED"
+    HUMAN = "HUMAN"      # p_human >= p_human_decide -> ASESOR DIRECTO (se salta STT)
+    STT   = "STT"        # zona de incertidumbre  -> STT + LLM (segunda etapa)
+    BUZON = "BUZON"      # p_human <= p_buzon      -> colgar / dejar mensaje
+    UNDECIDED = "UNDECIDED"   # aún sin suficiente audio / antes de la fecha límite
 
 
 @dataclass
@@ -182,19 +197,26 @@ class StreamingAMD:
         feats = self._features()
         p = self._p_human(feats)
 
-        # (5) decisión
+        # (5) decisión — TRES CUBOS (tu diseño): buzón / humano / incertidumbre
         #  - Por seguridad humana, por defecto SOLO se decide en la fecha límite
         #    (ventana completa). p_human se sigue calculando cada 20 ms y está
         #    disponible en current_p_human() para monitoreo/early-cut opcional.
         if self.cfg.allow_early_cut and self.elapsed_ms >= cfg.t_min_ms:
-            if p <= cfg.p_buzon:                       # máquina segura -> cortar ya
+            if p <= cfg.p_buzon:                       # buzón segurísimo -> cortar ya
                 return self._finish(Label.BUZON, p, feats)
-            if p >= cfg.p_human_early:                 # (opcional) humano seguro -> STT ya
+            if p >= cfg.p_human_decide:                # humano segurísimo -> asesor ya
                 return self._finish(Label.HUMAN, p, feats)
-        if self.elapsed_ms >= cfg.t_max_ms:            # fecha límite (decisión normal)
-            lbl = Label.BUZON if p <= cfg.p_buzon else Label.HUMAN
+            # en incertidumbre seguimos escuchando hasta la fecha límite
+        if self.elapsed_ms >= cfg.t_max_ms:            # fecha límite: clasificación final
+            lbl = self._decide(p)
             return self._finish(lbl, p, feats, forced=True)
         return None
+
+    def _decide(self, p: float) -> Label:
+        """Mapea p_human -> destino con tus dos umbrales y la zona de incertidumbre."""
+        if p <= self.cfg.p_buzon:          return Label.BUZON   # -> colgar / voicemail
+        if p >= self.cfg.p_human_decide:   return Label.HUMAN   # -> asesor directo
+        return Label.STT                                        # -> STT + LLM
 
     def current_p_human(self) -> float:
         return self._p_human(self._features()) if self.n else 0.5
@@ -255,24 +277,25 @@ if __name__ == "__main__":
     files = sorted(glob.glob("base/BASE_CONGLOMERADA/*.wav"))
     if not files:
         print("Pon los wav en base/BASE_CONGLOMERADA/ para la demo."); raise SystemExit
-    hum_lost = mac_caught = hum_total = mac_total = 0
+    # conteo por cubo: [humanos, maquinas]
+    box = {Label.BUZON: [0, 0], Label.STT: [0, 0], Label.HUMAN: [0, 0]}
+    n20 = cfg.sample_rate * cfg.chunk_ms // 1000
     for f in files:
         audio, _ = sf.read(f, dtype="float32")
         if audio.ndim > 1: audio = audio.mean(axis=1)
-        amd = StreamingAMD(AMDConfig()); dec = None
-        n20 = cfg.sample_rate*cfg.chunk_ms//1000
-        for t in range(len(audio)//n20):
+        amd = StreamingAMD(cfg); dec = None
+        for t in range(len(audio) // n20):
             dec = amd.feed_chunk(audio[t*n20:(t+1)*n20])
-            if dec: break
-        if dec is None:
-            p = amd.current_p_human()
-            dec = Decision(Label.BUZON if p <= cfg.p_buzon else Label.HUMAN, p, amd.elapsed_ms, True)
-        true_h = os.path.basename(f).startswith("humano")
-        is_buzon = dec.label == Label.BUZON
-        if true_h: hum_total += 1
-        else: mac_total += 1
-        if true_h and is_buzon: hum_lost += 1        # falso buzón (lo grave)
-        if (not true_h) and is_buzon: mac_caught += 1
-    print(f"n={len(files)}  (umbral conservador p_buzon={cfg.p_buzon})")
-    print(f"HUMANOS PERDIDOS (falso buzón): {hum_lost}/{hum_total}")
-    print(f"máquinas atrapadas en el AMD:   {mac_caught}/{mac_total} ({mac_caught/mac_total*100:.0f}%)  -> el resto pasa a STT")
+            if dec and dec.label != Label.UNDECIDED: break
+        if dec is None or dec.label == Label.UNDECIDED:
+            dec = Decision(amd._decide(amd.current_p_human()), amd.current_p_human(), amd.elapsed_ms, True)
+        is_h = os.path.basename(f).startswith("humano")
+        box[dec.label][0 if is_h else 1] += 1
+    nH = sum(v[0] for v in box.values()); nM = sum(v[1] for v in box.values())
+    print(f"n={len(files)}   p_buzon={cfg.p_buzon}  p_human_decide={cfg.p_human_decide}")
+    print(f"{'cubo':>8}{'humanos':>9}{'máquinas':>10}   destino")
+    print(f"{'BUZÓN':>8}{box[Label.BUZON][0]:>9}{box[Label.BUZON][1]:>10}   colgar/voicemail")
+    print(f"{'STT':>8}{box[Label.STT][0]:>9}{box[Label.STT][1]:>10}   -> STT + LLM")
+    print(f"{'HUMAN':>8}{box[Label.HUMAN][0]:>9}{box[Label.HUMAN][1]:>10}   asesor directo")
+    print(f"\nHUMANOS PERDIDOS (falso buzón): {box[Label.BUZON][0]}/{nH}")
+    print(f"Máquinas colgadas en el AMD:    {box[Label.BUZON][1]}/{nM}  -> el resto pasa a STT")
