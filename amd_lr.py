@@ -107,7 +107,7 @@ class AMDConfig:
     # 0.083, así que 0.5 deja a TODOS los humanos a salvo y atrapa las máquinas
     # obvias. El resto pasa a STT. Súbelo si quieres mandar menos a STT (riesgo
     # de perder humanos); bájalo para ser aún más conservador.
-    p_buzon: float = 0.15
+    p_buzon: float = 0.20
     p_human: float = 0.7
 
 
