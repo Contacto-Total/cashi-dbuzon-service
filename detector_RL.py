@@ -224,8 +224,6 @@ class CascadaAMDClass:
         # Definimos el buffer
         self.ring_buffer = bytearray()
 
-        # Inicializamos VAD de WebRTC con el nivel de agresividad definido arriba
-        self.vad = wtcvad.Vad(VAR_AGRESSIVENESS)
 
 
         # Inicializamos el detector de f0/pitch de Aubio con los parametros definidos arriba
