@@ -86,7 +86,7 @@ class AMDConfig:
     # en 0.028), y aún así se atrapa ~22% de las máquinas obvias. El resto pasa
     # a STT (tu red de seguridad). Súbelo solo si te molesta que máquinas pasen
     # a STT (a ti no te molesta).
-    p_buzon: float = 0.02
+    p_buzon: float = 0.5
 
     # Cortes tempranos: por defecto OFF. Cortar buzón antes de la fecha límite
     # pierde humanos, porque un humano puede tener un bajón TRANSITORIO de

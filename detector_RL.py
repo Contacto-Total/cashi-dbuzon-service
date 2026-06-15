@@ -295,6 +295,13 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
             "reason": f"RL p_human={decision.p_human:3f}",
             "transcripcion": "",}
         fuente = "RL"
+    elif decision.label == Label.HUMANO:
+        result = {
+            **event_base,
+            "decision": "humano",
+            "reason": f"RL p_human={decision.p_human:3f}",
+            "transcripcion": "",}
+        fuente = "RL"
     else:
         # Si no es humano
         try:
