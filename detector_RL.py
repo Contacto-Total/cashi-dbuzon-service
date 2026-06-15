@@ -275,14 +275,14 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
 
         # 2. Recalculamos humano cada 20 ms
         samples = np.frombuffer(chunk, dtype=np.int16).astype(np.float32) / 32768.0
-        cont_chunk +=1
+        contador_chunk +=1
         decision = amd.feed_chunk(samples)
         
     # Si RL ya decidio
     elapsed_md = round((time.time() - started_at) * 1000, 2)
     event_base = {
         "ts": datetime.now().isoformat(),
-        "chunk": cont_chunk,
+        "chunk": contador_chunk,
         "elapsed": elapsed_md,
         "buffer_bytes": len(cascada.ring_buffer),
     }
