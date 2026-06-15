@@ -1,0 +1,63 @@
+{
+  "features": [
+    "RMS_energy",
+    "RMS_hi",
+    "VAD_voiced",
+    "GOE_tone",
+    "F0_std_hi"
+  ],
+  "mu": [
+    0.4568312434691746,
+    0.2301462904911182,
+    0.37367206548241033,
+    0.051506443747823226,
+    0.2444542091382707
+  ],
+  "sd": [
+    0.26177556001144264,
+    0.238938962714524,
+    0.23550205437603539,
+    0.03483800862486579,
+    0.27299164590499875
+  ],
+  "coef": [
+    -1.5309755822130389,
+    1.2807213149613483,
+    -3.194310863299281,
+    -0.9442103123734442,
+    1.7897188490047853
+  ],
+  "intercept": -0.9178130745334432,
+  "cutoffs": {
+    "voiced_rms": 0.01,
+    "energy_rms": 0.005,
+    "rms_hi": 0.03,
+    "goe_freq_hz": 440,
+    "goe_thr": 0.05,
+    "f0std_hi": 40
+  },
+  "windows_ms": {
+    "rms": 40,
+    "goertzel": 60,
+    "vad": 80,
+    "f0": 100
+  },
+  "decision_window_ms": 2000,
+  "tick_ms": 20,
+  "p_buzon": 0.02,
+  "heldout": {
+    "acc": 0.921,
+    "recH": 0.846,
+    "recM": 0.95,
+    "fBuzon": 6,
+    "fHum": 5,
+    "n": 140
+  },
+  "decision_policy": "Declarar BUZON solo si p_human<=p_buzon, decidiendo en la fecha limite de 2000ms (ventana completa). Todo lo demas -> HUMANO -> STT.",
+  "vad_method": "energia: voz = rms(ultimos 20ms) > 0.01. NO webrtcvad (sobre-dispara en audio telefonico). Si usas webrtcvad, recalibra.",
+  "validation_full_dataset": {
+    "humanos_perdidos": "0/130",
+    "maquinas_atrapadas": "74/334 (22%)",
+    "nota": "el 78% restante pasa a STT que es la red de seguridad"
+  }
+}
