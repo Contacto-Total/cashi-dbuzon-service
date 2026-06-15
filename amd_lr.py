@@ -67,7 +67,7 @@ class AMDConfig:
     # Umbrales (tus dos niveles de confianza), iguales en ambas etapas:
     #   p_buzon = 0.0276 -> justo bajo el peor humano (0 humanos perdidos).
     #   p_human_decide = 0.80 -> 80% de humanos al asesor directo; 2 máquinas se cuelan.
-    p_buzon: float = 0.0276
+    p_buzon: float = 0.3
     p_human_decide: float = 0.80
 
     # Early-cut OFF por defecto: decidir con la ventana completa de cada etapa es
