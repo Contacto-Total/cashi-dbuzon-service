@@ -35,6 +35,8 @@ import soundfile as sf
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
+from amd_lr import StreamingAMD, AMDConfig, Label, Decision
+
 WHISPER_POOL = ThreadPoolExecutor(max_workers=3)
 
 load_dotenv()
@@ -253,155 +255,80 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
 
     cascada = CascadaAMDClass()
 
+    amd = StreamingAMD()
+
     started_at = time.time()
     contador_chunk = 0
 
-    while True:
-
-        chunk = await websocket.receive_bytes()
-
+    decision = None
+    while decision is None:
+        try:
+            chunk = await websocket.receive_bytes()
+        except WebSocketDisconnect:
+            p = amd.current_p_humano()
+            decision = Decision(Label.BUZON if p <= amd.cfg.p_buzon else Label.HUMANO,
+                                p, amd.elapsed_ms, forced=True)
+            break
+        
+        # 1. Acumulamos el audio para el STT (PARA GPT)
         cascada.ring_buffer.extend(chunk)
 
-        # Acumulamos en el buffer y lo limitamos a un tamaÃ±o maximo (ejm. 1500 ms)
-        if len(cascada.ring_buffer) >= LIMIT_BUFFER_BYTES:
-            # Falback para llamar a GPT y Whisper
-            cascada.ring_buffer = cascada.ring_buffer[-LIMIT_BUFFER_BYTES:]
+        # 2. Recalculamos humano cada 20 ms
+        samples = np.frombuffer(chunk, dtype=np.int16).astype(np.float32) / 32768.0
+        cont_chunk +=1
+        decision = amd.feed_chunk(samples)
         
-        # Jalamos funcion de analisis para una llamada
-        result = cascada.analize_audio()
+    # Si RL ya decidio
+    elapsed_md = round((time.time() - started_at) * 1000, 2)
+    event_base = {
+        "ts": datetime.now().isoformat(),
+        "chunk": cont_chunk,
+        "elapsed": elapsed_md,
+        "buffer_bytes": len(cascada.ring_buffer),
+    }
 
-        contador_chunk+=1
-        
-        elapsed_ms = round((time.time() - started_at) * 1000, 2)
-
-        event_ts = datetime.now().isoformat()
-
-        # Base para timestamp de eventos
-        event_base = {
-            "ts": event_ts,
-            "chunk": contador_chunk,
-            "elapsed_ms": elapsed_ms,
-            "buffer_bytes": len(cascada.ring_buffer)
-        }
-
-        # Payload para el analisis
-        payload_analisis={
-            "type": "analysis",
+    if decision.label == Label.BUZON:
+        # SI es buzom
+        result = {
             **event_base,
-            **result
-        }
+            "decision": "buzon",
+            "reason": f"RL p_human={decision.p_human:3f}",
+            "transcripcion": "",}
+        fuente = "RL"
+    else:
+        # Sino es humano
+        try:
+            result = await cascada.detect_()
+            fuente ="gpt"
+        except Exception as e:
+            print(f"GPT fallo ({type(e).__name__}) -> whisper")
+            try:
+                result = await cascada.detect_whisper()
+                fuente = "whisper"
+            except Exception as e:
+                print(f"WHISPER fallo ({type(e).__name__}) -> nada")
+                result = {"decision": "humano", "reason": "fail-safe", "transcripcion": ""}
+                fuente = "fail-safe"
+    
+    print(f"  {fuente} -> {result['decision'].upper()} (p_human={decision.p_human:.3f})")       
 
-        payload_analisis["verdict"] = payload_analisis.pop("decision")
-
-        # Comentado temporal 
-        # print(payload_analisis)
-
-        # Pasamos por websocket resultados
-        await websocket.send_json(payload_analisis)
-
-
-
-        # Si ya tenemos la decision de buzon o humano, llamamos
-        if result["decision"] in ["humano", "buzon"]:
-            payload_decision={
-                "type": "decision",
-                "source": "dsp",
-
-                **event_base,
-
-                "decision": {
-                    "result": result["decision"],
-                    "scores": result["scores"],
-                    "models": result["models"],
-                    "contrib_human": result["contrib_human"],
-                    "contrib_buzon": result["contrib_buzon"],
-                    "decided_at_chunk": contador_chunk,
-                    "decided_at_ms": elapsed_ms
-                }
-            }
-
-            # Comentado temporal
-            #print(payload_decision)
-            
-            await websocket.send_json(payload_decision)
-
-            print(f"  DSP â†’ {result['decision'].upper()} | human={result['scores']['human']:.2f} buzon={result['scores']['buzon']:.2f} | chunk {contador_chunk}")
-
-            await websocket.close()
-            break
-
-        """
-        # ------------------------------------------------------------------------
-        # TEMPORAL
-        # ------------------------------------------------------------------------
-        # --- TOPE DE TIEMPO (1800ms) -> SIN DECISION (sin Whisper) ---
-        # El ring_buffer se llena a LIMIT_BUFFER_BYTES (28800 = 1800ms) justo
-        # en el chunk 90. Si llegamos aqui es porque NO hubo decision DSP.
-        # Cerramos como "sindetectar" para medir cuantos pasarian a Whisper.
-        if len(cascada.ring_buffer) >= LIMIT_BUFFER_BYTES:
-            payload_sindecision = {
-                "type": "decision",
-                "source": "dsp_timeout",
-                **event_base,
-                "decision": {
-                    "result": "sindetectar",
-                    "scores": result["scores"],
-                    "decided_at_chunk": contador_chunk,
-                    "decided_at_ms": elapsed_ms
-                }
-            }
-            print("Tope 1800ms sin decision -> sindetectar")
-            await websocket.send_json(payload_sindecision)
-            await websocket.close()
-            break
-        """
-
-        # Llamamos al GPT, fallback de Whispr y por ultimo Backpressure de audio a Humano
-        if len(cascada.ring_buffer) >= LIMIT_BUFFER_BYTES:
-
-            # === MODO PRUEBA: NO llama a GPT (no gasta creditos), solo marca que paso ===
-            result = {"decision": "sindetectar", "reason": "modo prueba - paso a gpt", "transcripcion": ""}
-            fuente = "gpt"
-
-            # === MODO REAL: comenta las 2 lineas de arriba y descomenta esto para volver a usar GPT ===
-            # result = None
-            # fuente = "gpt"
-            # try:
-            #     result = await cascada.detect_()
-            # except Exception as e:
-            #     print(f"La API de GPT fallo ({type(e).__name__})")
-            #     fuente = "whisper"
-            #     try:
-            #         result = await cascada.detect_whisper()
-            #     except Exception as e:
-            #         print(f"Whisper fallo ({type(e).__name__})")
-            #         result = None
-            # if not result or result.get("decision") not in ("buzon","humano"):
-            #     result = {"decision": "humano", "reason": "Sin transcripcion - Conectar", "transcripcion": ""}
-            #     fuente = "fallsafe"
-            print(f"  {fuente} â†’ {result['decision'].upper()}")
-
-            payload_transcript={
-                "type": "decision",
-                "source": fuente,
-
-                **event_base,
-
-                "decision": {
-                    "result": result["decision"],
-                    "reason": result.get("reason"),
-                    "transcription": result.get("transcripcion"),
-                    "decided_at_chunk": contador_chunk,
-                    "decided_at_ms": elapsed_ms
-                }
-            }
-
-            await websocket.send_json(payload_transcript)
-
-            await websocket.close()
-            break
-        # Comentado temporal
-        #print(f"Chunk recibido de: {len(chunk)}")
+    payload = {
+          "type": "decision",
+          "source": fuente,
+          **event_base,
+          "decision": {
+            "result": result["decision"],
+            "reason": result.get("reason"),
+            "transcription": result.get("transcripcion"),
+            "decided_at_chunk": contador_chunk,
+            "decided_at_ms": elapsed_md,
+            "p_human": round(decision.p_human, 3),
+        },
+    }
+    await websocket.send_json(payload)
+    await websocket.close()         
+                
+        
 
 # Definimos pesos por modelos primero
 weight_numpy = 0.15
