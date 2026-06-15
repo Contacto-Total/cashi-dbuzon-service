@@ -86,10 +86,10 @@ class AMDConfig:
     t_max_ms: int = 1800              # FECHA LÍMITE (modelo v3 = 1800 ms)
 
     # BUZÓN solo si p_human <= p_buzon. A 1800 ms el humano más bajo quedó en
-    # 0.083, así que 0.05 deja a TODOS los humanos a salvo y atrapa las máquinas
+    # 0.083, así que 0.5 deja a TODOS los humanos a salvo y atrapa las máquinas
     # obvias. El resto pasa a STT. Súbelo si quieres mandar menos a STT (riesgo
     # de perder humanos); bájalo para ser aún más conservador.
-    p_buzon: float = 0.05
+    p_buzon: float = 0.5
 
     # Corte temprano: OFF por seguridad (un humano puede tener un bajón
     # transitorio de p_human y recuperarse). Decidir solo con la ventana
