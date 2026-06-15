@@ -66,7 +66,7 @@ class AMDConfig:
     # pero a 0.05 se PIERDE 1 humano. Por eso lo dejo en 0.02 (equivale a exigir
     # ~98% de confianza también para el buzón): 0 humanos perdidos en los 464
     # archivos (el humano más bajo quedó en 0.028) y aún atrapa ~22% de máquinas.
-    p_buzon: float = 0.3
+    p_buzon: float = 0.1
     p_human_decide: float = 0.80
 
     # Cortes tempranos: por defecto OFF. Cortar buzón antes de la fecha límite
