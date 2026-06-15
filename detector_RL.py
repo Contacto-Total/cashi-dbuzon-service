@@ -103,7 +103,7 @@ app = FastAPI()
 SAMPLE_RATE_DEFAULT = 8000
 
 # LIMITE DE ALMACENAMIENTO DE AUDIO EN BUFFER
-LIMIT_BUFFER_MS = 2000
+LIMIT_BUFFER_MS = 1800
 
 # 16000 bytes = 1 segundo = 1000 ms
 # 1500 ms * 8000 bytes * 2 (int16) / 1000 ms = 24000 bytes
@@ -296,9 +296,10 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
             "transcripcion": "",}
         fuente = "RL"
     else:
-        # Sino es humano
+        # Si no es humano
         try:
-            result = await cascada.detect_()
+            # result = await cascada.detect_()
+            result = {"decision": "sindetectar", "reason": "modo prueba - paso a gpt", "transcripcion": ""}
             fuente ="gpt"
         except Exception as e:
             print(f"GPT fallo ({type(e).__name__}) -> whisper")
