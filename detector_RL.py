@@ -265,8 +265,8 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
         try:
             chunk = await websocket.receive_bytes()
         except WebSocketDisconnect:
-            p = amd.current_p_humano()
-            decision = Decision(Label.BUZON if p <= amd.cfg.p_buzon else Label.HUMANO,
+            p = amd.current_p_human()
+            decision = Decision(Label.BUZON if p <= amd.cfg.p_buzon else Label.HUMAN,
                                 p, amd.elapsed_ms, forced=True)
             break
         
@@ -295,7 +295,7 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
             "reason": f"RL p_human={decision.p_human:3f}",
             "transcripcion": "",}
         fuente = "RL"
-    elif decision.label == Label.HUMANO:
+    elif decision.label == Label.HUMAN:
         result = {
             **event_base,
             "decision": "humano",
