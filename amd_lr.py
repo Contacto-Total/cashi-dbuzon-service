@@ -89,7 +89,9 @@ class AMDConfig:
     # 0.083, así que 0.5 deja a TODOS los humanos a salvo y atrapa las máquinas
     # obvias. El resto pasa a STT. Súbelo si quieres mandar menos a STT (riesgo
     # de perder humanos); bájalo para ser aún más conservador.
-    p_buzon: float = 0.5
+    p_buzon: float = 0.2
+    p_human: float = 0.8
+
 
     # Corte temprano: OFF por seguridad (un humano puede tener un bajón
     # transitorio de p_human y recuperarse). Decidir solo con la ventana
@@ -190,7 +192,12 @@ class StreamingAMD:
             if p >= cfg.p_human_early:
                 return self._finish(Label.HUMAN, p, feats)
         if self.elapsed_ms >= cfg.t_max_ms:
-            lbl = Label.BUZON if p <= cfg.p_buzon else Label.HUMAN
+            if p <= cfg.p_buzon:
+                lbl = Label.BUZON
+            elif p >= cfg.p_human:
+                lbl = Label.HUMAN
+            else:
+                lbl = Label.UNDECIDED
             return self._finish(lbl, p, feats, forced=True)
         return None
 
