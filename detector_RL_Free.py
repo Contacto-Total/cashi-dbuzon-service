@@ -193,18 +193,17 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
             "transcripcion": "",}
         fuente = "RL"
     else:
-        # Si no es humano
+        # RL no decidió (ni BUZON ni HUMANO) -> cascada STT: GPT primario, whisper de respaldo
         try:
-            # result = await cascada.detect_()
-            result = {"decision": "sindetectar", "reason": "modo prueba - paso a gpt", "transcripcion": ""}
-            fuente ="gpt"
+            result = await cascada.detect_()          # GPT real; si está apagado/key mala -> lanza -> whisper
+            fuente = "gpt"
         except Exception as e:
-            print(f"GPT fallo ({type(e).__name__}) -> whisper")
+            print(f"  GPT falló ({type(e).__name__}) -> whisper")
             try:
                 result = await cascada.detect_whisper()
                 fuente = "whisper"
             except Exception as e:
-                print(f"WHISPER fallo ({type(e).__name__}) -> nada")
+                print(f"  WHISPER falló ({type(e).__name__}) -> fail-safe (humano)")
                 result = {"decision": "humano", "reason": "fail-safe", "transcripcion": ""}
                 fuente = "fail-safe"
     
