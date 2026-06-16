@@ -35,7 +35,12 @@ import soundfile as sf
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
+import httpx
+
 from amd_lr import StreamingAMD, AMDConfig, Outcome, Decision
+
+# URL del backend (discador) al que avisamos la decisión para que ACTÚE sobre la llamada
+BACKEND_AMD_URL = os.getenv("BACKEND_AMD_URL", "http://localhost:8080/api/amd/decision")
 
 WHISPER_POOL = ThreadPoolExecutor(max_workers=3)
 
@@ -203,7 +208,33 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
                 result = {"decision": "humano", "reason": "fail-safe", "transcripcion": ""}
                 fuente = "fail-safe"
     
-    print(f"  {fuente} -> {result['decision'].upper()} (p_human={decision.p_human:.3f})")       
+    # === RESUMEN de la decisión (para los logs) ===
+    print(
+        f"  ┌─ DECISIÓN AMD  [{call_id}]\n"
+        f"  │  resultado  : {result['decision'].upper()}  (fuente={fuente})\n"
+        f"  │  p_human    : {decision.p_human:.3f}\n"
+        f"  │  chunks      : {contador_chunk} recibidos en total\n"
+        f"  │  tiempo      : {elapsed_md:.0f} ms (wall-clock desde el 1er frame)\n"
+        f"  │  decidió en  : checkpoint {decision.checkpoint_ms} ms de audio  (≈chunk #{contador_chunk})\n"
+        f"  │  motivo      : {result.get('reason', '')}\n"
+        f"  └─"
+    )
+
+    # === Avisar al BACKEND (discador) para que ACTÚE sobre la llamada (flujo FreeSWITCH) ===
+    # mapeo al vocabulario del backend: buzon->MACHINE, humano->HUMAN, resto->UNKNOWN (conecta)
+    backend_result = {"buzon": "MACHINE", "humano": "HUMAN"}.get(result["decision"], "UNKNOWN")
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as hc:
+            await hc.post(BACKEND_AMD_URL, json={
+                "callUuid": call_id,
+                "result": backend_result,
+                "confidence": round(float(decision.p_human), 3),
+                "reason": result.get("reason", ""),
+            })
+        print(f"  -> backend avisado: {call_id} = {backend_result}")
+    except Exception as e:
+        # En el test con disparador no hay backend -> se ignora (inofensivo)
+        print(f"  (sin backend / no avisado: {type(e).__name__})")
 
     payload = {
           "type": "decision",
