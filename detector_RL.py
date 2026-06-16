@@ -146,7 +146,7 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
         contador_chunk +=1
         decision = amd.feed_chunk(samples)
 
-        if decision.outcome == Outcome.UNDECIDED:
+        if decision.outcome != Outcome.UNDECIDED:   # ya decidió (BUZON/HUMANO/SEND_TO_STT)
             break
         
     # Si RL ya decidio
@@ -165,7 +165,7 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
             "reason": f"RL p_human={decision.p_human:3f}",
             "transcripcion": "",}
         fuente = "RL"
-    elif decision.label == Outcome.HUMAN:
+    elif decision.outcome == Outcome.HUMANO:
         result = {
             "decision": "humano",
             "reason": f"RL p_human={decision.p_human:3f}",
