@@ -35,7 +35,7 @@ import soundfile as sf
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
-from amd_lr import StreamingAMD, AMDConfig, Label, Decision
+from amd_lr import StreamingAMD, AMDConfig, Outcome, Decision
 
 WHISPER_POOL = ThreadPoolExecutor(max_workers=3)
 
@@ -131,13 +131,11 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
     contador_chunk = 0
 
     decision = None
-    while decision is None:
+    while True:
         try:
             chunk = await websocket.receive_bytes()
         except WebSocketDisconnect:
-            p = amd.current_p_human()
-            decision = Decision(Label.BUZON if p <= amd.cfg.p_buzon else Label.HUMAN,
-                                p, amd.elapsed_ms, forced=True)
+            decision = amd.force_decision()
             break
         
         # 1. Acumulamos el audio para el STT (PARA GPT)
@@ -147,6 +145,9 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
         samples = np.frombuffer(chunk, dtype=np.int16).astype(np.float32) / 32768.0
         contador_chunk +=1
         decision = amd.feed_chunk(samples)
+
+        if decision.outcome == Outcome.UNDECIDED:
+            break
         
     # Si RL ya decidio
     elapsed_md = round((time.time() - started_at) * 1000, 2)
@@ -157,17 +158,15 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
         "buffer_bytes": len(cascada.ring_buffer),
     }
 
-    if decision.label == Label.BUZON:
+    if decision.outcome == Outcome.BUZON:
         # SI es buzom
         result = {
-            **event_base,
             "decision": "buzon",
             "reason": f"RL p_human={decision.p_human:3f}",
             "transcripcion": "",}
         fuente = "RL"
-    elif decision.label == Label.HUMAN:
+    elif decision.label == Outcome.HUMAN:
         result = {
-            **event_base,
             "decision": "humano",
             "reason": f"RL p_human={decision.p_human:3f}",
             "transcripcion": "",}
