@@ -48,19 +48,24 @@ class Decision:
     checkpoint_ms: int
     reason: str = ""
 
+_SILERO_SESS = None
+def _get_silero_sess(path):
+    global _SILERO_SESS
+    if _SILERO_SESS is None and _HAS_ORT and os.path.exists(path):
+        _ort.set_default_logger_severity(3)
+        so = _ort.SessionOptions()
+        so.inter_op_num_threads = 1
+        so.intra_op_num_threads = 1
+        _SILERO_SESS = _ort.InferenceSession(path, so)
+    return _SILERO_SESS
+
 
 class _SileroVAD:
     FRAME = 256
 
     def __init__(self, path: str):
-        self.ok = False
-        if _HAS_ORT and os.path.exists(path):
-            try:
-                _ort.set_default_logger_severity(3)
-                self.sess = _ort.InferenceSession(path)
-                self.ok = True
-            except Exception:
-                self.ok = False
+        self.sess = _get_silero_sess(path)
+        self.ok = self.sess is not None
         self.reset()
 
     def reset(self):
@@ -150,11 +155,16 @@ class _FunnelModel:
             z += c * (feat[k] - m["mu"][k]) / m["sd"][k]
         return 1.0 / (1.0 + math.exp(-z))
 
+_FUNNEL_CACHE = {}
+def _get_funnel_model(path):
+    if path not in _FUNNEL_CACHE:
+        _FUNNEL_CACHE[path] = _FunnelModel(path)
+    return _FUNNEL_CACHE[path]
 
 class StreamingAMD:
     def __init__(self, cfg: Optional[AMDConfig] = None):
         self.cfg = cfg or AMDConfig()
-        self.model = _FunnelModel(self.cfg.model_path)
+        self.model = _get_funnel_model(self.cfg.model_path)
         self.checkpoints = self.model.checkpoints
         self._silero = _SileroVAD(self.cfg.silero_path) if self.cfg.use_silero else None
         self.using_silero = bool(self._silero and self._silero.ok)
@@ -166,6 +176,7 @@ class StreamingAMD:
         self._prev_p = 1.0
         self._done = False
         if self._silero:
+            
             self._silero.reset()
         self._tick_done = 0
         self._g620: List[float] = []
