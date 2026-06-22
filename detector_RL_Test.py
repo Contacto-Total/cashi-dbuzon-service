@@ -181,11 +181,21 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
         if decision.outcome != Outcome.UNDECIDED:   # ya decidió (BUZON/HUMANO/SEND_TO_STT)
             break
 
-    # === [TEST] Resumen RMS por llamada (canal muerto = rms_max ~ 0 con chunks > 0) ===
+    # === [TEST] Resumen RMS por llamada, en 3 niveles ===
+    #   MUERTA: rms_max < 0.001  -> NADA de audio (canal muerto puro / FS no enganchó el RTP)
+    #   BAJO  : 0.001..0.02      -> entró ALGO de audio pero muy bajo (revisar a oído)
+    #   OK    : >= 0.02          -> audio real
     rms_avg = (rms_sum / rms_cnt) if rms_cnt else 0.0
+    if rms_cnt == 0:
+        estado = "SIN_CHUNKS (no llegó audio)"
+    elif rms_max < 0.001:
+        estado = "<<< MUERTA (nada de audio)"
+    elif rms_max < 0.02:
+        estado = "<< BAJO (algo de audio, revisar)"
+    else:
+        estado = "OK"
     print(
-        f"  >> RMS [{call_id}] chunks={rms_cnt} rms_max={rms_max:.5f} rms_avg={rms_avg:.5f}"
-        + ("  <<< MUERTA (sin audio)" if (rms_cnt > 0 and rms_max < 0.01) else "")
+        f"  >> RMS [{call_id}] chunks={rms_cnt} rms_max={rms_max:.5f} rms_avg={rms_avg:.5f}  {estado}"
     )
 
     # Si RL ya decidio
