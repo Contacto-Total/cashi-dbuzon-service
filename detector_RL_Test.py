@@ -160,26 +160,28 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
         contador_chunk += 1
         decision = amd.feed_chunk(samples)
 
-    while decision is None or decision.outcome == Outcome.UNDECIDED:
+    # === [DIAGNÓSTICO] leer TODA la llamada + RMS por segundo, sin cortar al decidir ===
+    win_sum = 0.0; win_cnt = 0
+    while True:
         try:
             chunk = await websocket.receive_bytes()
         except WebSocketDisconnect:
-            decision = amd.force_decision()
+            if decision is None or decision.outcome == Outcome.UNDECIDED:
+                decision = amd.force_decision()
             break
 
-        # 1. Acumulamos el audio para el STT (PARA GPT)
         cascada.ring_buffer.extend(chunk)
-
-        # 2. Recalculamos cada frame
         samples = np.frombuffer(chunk, dtype=np.int16).astype(np.float32) / 32768.0
-        # === [TEST] RMS de cada chunk ===
         _r = float(np.sqrt(np.mean(samples**2))) if samples.size else 0.0
         rms_max = max(rms_max, _r); rms_sum += _r; rms_cnt += 1
         contador_chunk += 1
-        decision = amd.feed_chunk(samples)
+        win_sum += _r; win_cnt += 1
+        if win_cnt >= 50:   # ~1 seg (50 chunks de 20ms)
+            print(f"  ~~ TL [{call_id}] t={contador_chunk*20//1000}s rms_win={win_sum/win_cnt:.5f}", flush=True)
+            win_sum = 0.0; win_cnt = 0
 
-        if decision.outcome != Outcome.UNDECIDED:   # ya decidió (BUZON/HUMANO/SEND_TO_STT)
-            break
+        if decision is None or decision.outcome == Outcome.UNDECIDED:
+            decision = amd.feed_chunk(samples)
 
     # === [TEST] Resumen RMS por llamada, en 3 niveles ===
     #   MUERTA: rms_max < 0.001  -> NADA de audio (canal muerto puro / FS no enganchó el RTP)
