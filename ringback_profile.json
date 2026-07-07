@@ -1,0 +1,8 @@
+{
+  "T_sil": 0.01,
+  "T_flat": 0.01,
+  "freq_ringback_hz": 450,
+  "N_voz_ms": 250,
+  "N_timeout_s": 10,
+  "_nota": "medido de 8 llamadas reales (Entel/Claro/Movistar/Bitel): tono flat<=0.002, voz flat>=0.02, ringback ~450Hz"
+}

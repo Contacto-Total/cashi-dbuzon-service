@@ -39,6 +39,28 @@ import httpx
 
 from amd_lr import StreamingAMD, AMDConfig, Outcome, Decision
 
+# ===== [PRE-SPEECH GATE] filtra silencio/timbrado; solo VOZ pasa al speech =====
+_HERE_RB = os.path.dirname(os.path.abspath(__file__))
+try:
+    RB_PROFILE = json.load(open(os.path.join(_HERE_RB, "ringback_profile.json")))
+    print(f"[gate] ringback_profile.json cargado: {RB_PROFILE}")
+except Exception as e:
+    print(f"[gate] no cargo ringback_profile.json ({e}); defaults")
+    RB_PROFILE = {"T_sil": 0.01, "T_flat": 0.01, "N_voz_ms": 250}
+
+def _flatness(x):
+    if x.size < 256:
+        return 1.0
+    w = x * np.hanning(x.size)
+    sp = np.abs(np.fft.rfft(w)); ps = sp * sp + 1e-12
+    return float(np.exp(np.mean(np.log(ps))) / np.mean(ps))
+
+def _clasificar_ventana(x):
+    r = float(np.sqrt(np.mean(x * x))) if x.size else 0.0
+    if r < RB_PROFILE["T_sil"]:  return "SIL", r
+    if _flatness(x) < RB_PROFILE["T_flat"]:  return "TONO", r
+    return "VOZ", r
+
 # URL del backend (discador) al que avisamos la decisión para que ACTÚE sobre la llamada
 BACKEND_AMD_URL = os.getenv("BACKEND_AMD_URL", "http://localhost:8080/api/amd/decision")
 
@@ -142,46 +164,60 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
 
     started_at = time.time()
     contador_chunk = 0
-
     decision = None
+    rms_max = 0.0; rms_sum = 0.0; rms_cnt = 0
 
-    # === [TEST] Acumuladores de RMS por llamada para detectar canal muerto ===
-    rms_max = 0.0
-    rms_sum = 0.0
-    rms_cnt = 0
+    # ===== [PRE-SPEECH GATE] estado =====
+    fase = "PRE"
+    buffer_pre = bytearray()
+    _win = bytearray()
+    WIN_BYTES = int(0.20 * 8000) * 2
+    voz_ms = 0.0
+    DUR_WIN_MS = (WIN_BYTES // 2) / 8000 * 1000
 
-    # mod_audio_stream: el 1er mensaje YA puede ser audio -> procesarlo primero
-    if primer_chunk is not None:
-        cascada.ring_buffer.extend(primer_chunk)
-        samples = np.frombuffer(primer_chunk, dtype=np.int16).astype(np.float32) / 32768.0
-        # === [TEST] RMS del primer chunk ===
-        _r = float(np.sqrt(np.mean(samples**2))) if samples.size else 0.0
+    def _feed_speech(raw):
+        nonlocal decision, contador_chunk, rms_max, rms_sum, rms_cnt
+        cascada.ring_buffer.extend(raw)
+        s = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+        _r = float(np.sqrt(np.mean(s**2))) if s.size else 0.0
         rms_max = max(rms_max, _r); rms_sum += _r; rms_cnt += 1
         contador_chunk += 1
-        decision = amd.feed_chunk(samples)
+        if decision is None or decision.outcome == Outcome.UNDECIDED:
+            decision = amd.feed_chunk(s)
 
-    # === [DIAGNÓSTICO] leer TODA la llamada + RMS por segundo, sin cortar al decidir ===
-    win_sum = 0.0; win_cnt = 0
+    def _procesar(raw):
+        nonlocal fase, buffer_pre, _win, voz_ms
+        if fase == "SPEECH":
+            _feed_speech(raw)
+            return
+        _win.extend(raw); buffer_pre.extend(raw)
+        if len(_win) < WIN_BYTES:
+            return
+        x = np.frombuffer(bytes(_win), dtype=np.int16).astype(np.float32) / 32768.0
+        _win = bytearray()
+        kind, r = _clasificar_ventana(x)
+        if kind == "VOZ":
+            voz_ms += DUR_WIN_MS
+            if voz_ms >= RB_PROFILE["N_voz_ms"]:
+                fase = "SPEECH"
+                print(f"  == [gate] PROMOVIDO [{call_id}] @ {round((time.time()-started_at)*1000)}ms ==", flush=True)
+                _feed_speech(bytes(buffer_pre))
+                buffer_pre = bytearray()
+        else:
+            voz_ms = 0; buffer_pre = bytearray()
+
+    if primer_chunk is not None:
+        _procesar(primer_chunk)
+
     while True:
         try:
             chunk = await websocket.receive_bytes()
         except WebSocketDisconnect:
-            if decision is None or decision.outcome == Outcome.UNDECIDED:
-                decision = amd.force_decision()
             break
+        _procesar(chunk)
 
-        cascada.ring_buffer.extend(chunk)
-        samples = np.frombuffer(chunk, dtype=np.int16).astype(np.float32) / 32768.0
-        _r = float(np.sqrt(np.mean(samples**2))) if samples.size else 0.0
-        rms_max = max(rms_max, _r); rms_sum += _r; rms_cnt += 1
-        contador_chunk += 1
-        win_sum += _r; win_cnt += 1
-        if win_cnt >= 50:   # ~1 seg (50 chunks de 20ms)
-            print(f"  ~~ TL [{call_id}] t={contador_chunk*20//1000}s rms_win={win_sum/win_cnt:.5f}", flush=True)
-            win_sum = 0.0; win_cnt = 0
-
-        if decision is None or decision.outcome == Outcome.UNDECIDED:
-            decision = amd.feed_chunk(samples)
+    if decision is None or decision.outcome == Outcome.UNDECIDED:
+        decision = amd.force_decision()
 
     # === [TEST] Resumen RMS por llamada, en 3 niveles ===
     #   MUERTA: rms_max < 0.001  -> NADA de audio (canal muerto puro / FS no enganchó el RTP)
