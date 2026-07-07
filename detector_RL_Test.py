@@ -215,6 +215,8 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
         except WebSocketDisconnect:
             break
         _procesar(chunk)
+        if decision is not None and decision.outcome != Outcome.UNDECIDED:
+            break  # el speech YA decidio -> salir para enviar la decision a tiempo (antes del timeout del backend)
 
     if decision is None or decision.outcome == Outcome.UNDECIDED:
         decision = amd.force_decision()
@@ -314,8 +316,11 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
             "p_human": round(decision.p_human, 3),
         },
     }
-    await websocket.send_json(payload)
-    await websocket.close()
+    try:
+        await websocket.send_json(payload)
+        await websocket.close()
+    except Exception:
+        pass  # el WS ya se cerro (FS corto el stream); la decision ya fue al backend por HTTP
 
 
 
