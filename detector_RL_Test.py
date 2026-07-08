@@ -218,7 +218,7 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
         if decision is not None and decision.outcome != Outcome.UNDECIDED:
             break  # el speech YA decidio -> salir para enviar la decision a tiempo (antes del timeout del backend)
 
-    if decision is None or decision.outcome == Outcome.UNDECIDED:
+    if contador_chunk > 0 and (decision is None or decision.outcome == Outcome.UNDECIDED):
         decision = amd.force_decision()
 
     # === [TEST] Resumen RMS por llamada, en 3 niveles ===
@@ -237,6 +237,27 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
     print(
         f"  >> RMS [{call_id}] chunks={rms_cnt} rms_max={rms_max:.5f} rms_avg={rms_avg:.5f}  {estado}"
     )
+
+    # === SIN AUDIO: el speech NUNCA recibió audio (no promovió) -> no inventar decisión del speech ===
+    if contador_chunk == 0:
+        elapsed_md = round((time.time() - started_at) * 1000, 2)
+        print(f"  ┌─ SIN AUDIO [{call_id}] — 0 chunks al speech, nunca promovió (WS cerró a {elapsed_md:.0f}ms)")
+        print(f"  └─ NO pasó al speech → default MACHINE (no conectar; no se analizó)")
+        try:
+            async with httpx.AsyncClient(timeout=3.0) as hc:
+                await hc.post(BACKEND_AMD_URL, json={
+                    "callUuid": call_id, "result": "MACHINE",
+                    "confidence": 0.0, "reason": "sin audio: nunca promovió al speech"})
+            print(f"  -> backend avisado: {call_id} = MACHINE (sin audio)")
+        except Exception as e:
+            print(f"  (sin backend: {type(e).__name__})")
+        try:
+            await websocket.send_json({"type": "decision", "source": "sin-audio",
+                "decision": {"result": "buzon", "reason": "sin audio", "p_human": 0.0}})
+            await websocket.close()
+        except Exception:
+            pass
+        return
 
     # Si RL ya decidio
     elapsed_md = round((time.time() - started_at) * 1000, 2)
