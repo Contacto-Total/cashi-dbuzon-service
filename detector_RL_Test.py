@@ -180,6 +180,10 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
     WIN_BYTES = int(0.20 * 8000) * 2
     voz_ms = 0.0
     DUR_WIN_MS = (WIN_BYTES // 2) / 8000 * 1000
+    # ===== [PRE-SPEECH] instrumentacion: saber si LLEGO audio y en que estado acabo =====
+    frames_rx = 0
+    n_sil = 0; n_tono = 0; n_voz = 0
+    promovio_ms = None
 
     def _feed_speech(raw):
         nonlocal decision, contador_chunk, rms_max, rms_sum, rms_cnt
@@ -192,7 +196,8 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
             decision = amd.feed_chunk(s)
 
     def _procesar(raw):
-        nonlocal fase, buffer_pre, _win, voz_ms
+        nonlocal fase, buffer_pre, _win, voz_ms, frames_rx, n_sil, n_tono, n_voz, promovio_ms
+        frames_rx += 1                     # cuenta TODO frame recibido (aunque nunca promueva)
         if fase == "SPEECH":
             _feed_speech(raw)
             return
@@ -202,11 +207,15 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
         x = np.frombuffer(bytes(_win), dtype=np.int16).astype(np.float32) / 32768.0
         _win = bytearray()
         kind, r = _clasificar_ventana(x)
+        if kind == "SIL": n_sil += 1
+        elif kind == "TONO": n_tono += 1
+        else: n_voz += 1
         if kind == "VOZ":
             voz_ms += DUR_WIN_MS
             if voz_ms >= RB_PROFILE["N_voz_ms"]:
                 fase = "SPEECH"
-                print(f"  == [gate] PROMOVIDO [{call_id}] @ {round((time.time()-started_at)*1000)}ms ==", flush=True)
+                promovio_ms = round((time.time()-started_at)*1000)
+                print(f"  == [gate] PROMOVIDO [{call_id}] @ {promovio_ms}ms ==", flush=True)
                 _feed_speech(bytes(buffer_pre))
                 buffer_pre = bytearray()
         else:
@@ -226,6 +235,16 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
 
     if contador_chunk > 0 and (decision is None or decision.outcome == Outcome.UNDECIDED):
         decision = amd.force_decision()
+
+    # ===== [PRE-SPEECH] estado final + tiempo (loguea la VERDAD: llego audio o no, y en que acabo) =====
+    pre_dur_ms = promovio_ms if promovio_ms is not None else round((time.time() - started_at) * 1000)
+    if promovio_ms is not None:   pre_estado = "VOZ"        # promovio -> paso al speech
+    elif frames_rx == 0:          pre_estado = "SIN_AUDIO"  # NO llego ni un frame (bug del stream)
+    elif n_tono >= n_sil:         pre_estado = "TIMBRADO"   # llegaron frames, predomino tono/timbrado
+    else:                         pre_estado = "SILENCIO"   # llegaron frames, predomino silencio
+    print(f"  [pre-speech] [{call_id}] frames_rx={frames_rx} ventanas={n_sil+n_tono+n_voz} "
+          f"(sil={n_sil} tono={n_tono} voz={n_voz}) dur={pre_dur_ms}ms -> {pre_estado}"
+          + (f" (promovio@{promovio_ms}ms)" if promovio_ms is not None else ""), flush=True)
 
     # === [TEST] Resumen RMS por llamada, en 3 niveles ===
     #   MUERTA: rms_max < 0.001  -> NADA de audio (canal muerto puro / FS no enganchó el RTP)
