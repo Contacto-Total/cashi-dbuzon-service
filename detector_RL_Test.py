@@ -232,17 +232,22 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
             break
         if msg.get("type") == "websocket.disconnect":
             break
-        # --- [VARIANTE B] señal de texto del backend: al llegar el 200 -> RESETEAR el pre-speech ---
-        # (olvida el timbrado/silencio pre-200 y analiza limpio la respuesta contestada)
+        # --- [VARIANTE B] señal de texto del backend: al llegar el 200 -> AUTO-PROMOVER al speech ---
+        # (se salta el gate: toda llamada contestada va directo al modelo, analizando la respuesta contestada)
         if msg.get("text") is not None:
             try:
                 evt = json.loads(msg["text"])
             except Exception:
                 evt = {}
             if evt.get("event") == "answered" and fase == "PRE":
-                voz_ms = 0.0; buffer_pre = bytearray(); _win = bytearray()
-                reset_200_ms = round((time.time() - started_at) * 1000)
-                print(f"  == [gate] RESET por 200 [{call_id}] @ {reset_200_ms}ms (analiza limpio la respuesta) ==", flush=True)
+                # [VARIANTE B -> AUTO-PROMOTE] al contestar (200) NO reiniciamos el gate:
+                # promovemos DIRECTO al speech (el modelo RL/gpt es mas robusto que el gate
+                # y cachea humanos entrecortados que el gate pierde). Se descarta el timbrado pre-200.
+                fase = "SPEECH"
+                promovio_ms = round((time.time() - started_at) * 1000)
+                reset_200_ms = promovio_ms
+                buffer_pre = bytearray(); _win = bytearray()   # descarta el timbrado/silencio pre-200
+                print(f"  == [gate] PROMOVIDO por 200 [{call_id}] @ {promovio_ms}ms (auto al contestar, se salta el gate) ==", flush=True)
             continue
         chunk = msg.get("bytes")
         if chunk is None:
