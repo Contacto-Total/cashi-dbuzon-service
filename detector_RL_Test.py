@@ -224,11 +224,29 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
     if primer_chunk is not None:
         _procesar(primer_chunk)
 
+    reset_200_ms = None
     while True:
         try:
-            chunk = await websocket.receive_bytes()
-        except WebSocketDisconnect:
+            msg = await websocket.receive()
+        except (WebSocketDisconnect, RuntimeError):
             break
+        if msg.get("type") == "websocket.disconnect":
+            break
+        # --- [VARIANTE B] señal de texto del backend: al llegar el 200 -> RESETEAR el pre-speech ---
+        # (olvida el timbrado/silencio pre-200 y analiza limpio la respuesta contestada)
+        if msg.get("text") is not None:
+            try:
+                evt = json.loads(msg["text"])
+            except Exception:
+                evt = {}
+            if evt.get("event") == "answered" and fase == "PRE":
+                voz_ms = 0.0; buffer_pre = bytearray(); _win = bytearray()
+                reset_200_ms = round((time.time() - started_at) * 1000)
+                print(f"  == [gate] RESET por 200 [{call_id}] @ {reset_200_ms}ms (analiza limpio la respuesta) ==", flush=True)
+            continue
+        chunk = msg.get("bytes")
+        if chunk is None:
+            continue
         _procesar(chunk)
         if decision is not None and decision.outcome != Outcome.UNDECIDED:
             break  # el speech YA decidio -> salir para enviar la decision a tiempo (antes del timeout del backend)
