@@ -69,6 +69,17 @@ def _clasificar_ventana(x):
 
 # URL del backend (discador) al que avisamos la decisión para que ACTÚE sobre la llamada
 BACKEND_AMD_URL = os.getenv("BACKEND_AMD_URL", "http://localhost:8080/api/amd/decision")
+BACKEND_PROMOTED_URL = os.getenv("BACKEND_PROMOTED_URL", BACKEND_AMD_URL.replace("/decision", "/promoted"))
+
+async def avisar_grabar(call_id):
+    """Avisa al backend que la llamada PROMOVIÓ al speech -> el backend arranca uuid_record.
+    Así FreeSWITCH graba SOLO desde la promoción (no el timbrado, ni las que nunca promueven)."""
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as hc:
+            await hc.post(BACKEND_PROMOTED_URL, json={"callUuid": call_id})
+        print(f"  🎙️ backend avisado GRABAR [{call_id}] (promovido)", flush=True)
+    except Exception as e:
+        print(f"  (no avise grabar [{call_id}]: {type(e).__name__})", flush=True)
 
 WHISPER_POOL = ThreadPoolExecutor(max_workers=3)
 
@@ -221,8 +232,11 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
         else:
             voz_ms = 0; buffer_pre = bytearray()
 
+    notificado_promo = False
     if primer_chunk is not None:
         _procesar(primer_chunk)
+        if promovio_ms is not None and not notificado_promo:
+            notificado_promo = True; await avisar_grabar(call_id)
 
     reset_200_ms = None
     while True:
@@ -248,11 +262,15 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
                 reset_200_ms = promovio_ms
                 buffer_pre = bytearray(); _win = bytearray()   # descarta el timbrado/silencio pre-200
                 print(f"  == [gate] PROMOVIDO por 200 [{call_id}] @ {promovio_ms}ms (auto al contestar, se salta el gate) ==", flush=True)
+                if not notificado_promo:
+                    notificado_promo = True; await avisar_grabar(call_id)
             continue
         chunk = msg.get("bytes")
         if chunk is None:
             continue
         _procesar(chunk)
+        if promovio_ms is not None and not notificado_promo:   # promovió por el gate -> grabar
+            notificado_promo = True; await avisar_grabar(call_id)
         if decision is not None and decision.outcome != Outcome.UNDECIDED:
             break  # el speech YA decidio -> salir para enviar la decision a tiempo (antes del timeout del backend)
 
