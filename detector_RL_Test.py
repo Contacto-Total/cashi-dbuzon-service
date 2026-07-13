@@ -279,10 +279,14 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
 
     # ===== [PRE-SPEECH] estado final + tiempo (loguea la VERDAD: llego audio o no, y en que acabo) =====
     pre_dur_ms = promovio_ms if promovio_ms is not None else round((time.time() - started_at) * 1000)
-    if promovio_ms is not None:   pre_estado = "VOZ"        # promovio -> paso al speech
-    elif frames_rx == 0:          pre_estado = "SIN_AUDIO"  # NO llego ni un frame (bug del stream)
-    elif n_tono >= n_sil:         pre_estado = "TIMBRADO"   # llegaron frames, predomino tono/timbrado
-    else:                         pre_estado = "SILENCIO"   # llegaron frames, predomino silencio
+    # El ringback son BURSTS de tono separados por silencio largo, así que el silencio SIEMPRE
+    # gana en cantidad de ventanas. Por eso NO se exige que el tono sea mayoría: si hubo una
+    # cantidad real de tono (>= N_tono_timbrado) es TIMBRADO. Solo tono ≈ 0 es SILENCIO de verdad.
+    _n_tono_timbrado = RB_PROFILE.get("N_tono_timbrado", 8)
+    if promovio_ms is not None:            pre_estado = "VOZ"        # promovio -> paso al speech
+    elif frames_rx == 0:                   pre_estado = "SIN_AUDIO"  # NO llego ni un frame (bug del stream)
+    elif n_tono >= _n_tono_timbrado:       pre_estado = "TIMBRADO"   # hubo ringback real (aunque el silencio entre bursts domine)
+    else:                                  pre_estado = "SILENCIO"   # casi sin tono = silencio de verdad
     print(f"  [pre-speech] [{call_id}] frames_rx={frames_rx} ventanas={n_sil+n_tono+n_voz} "
           f"(sil={n_sil} tono={n_tono} voz={n_voz}) dur={pre_dur_ms}ms -> {pre_estado}"
           + (f" (promovio@{promovio_ms}ms)" if promovio_ms is not None else ""), flush=True)
@@ -303,6 +307,22 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
     print(
         f"  >> RMS [{call_id}] chunks={rms_cnt} rms_max={rms_max:.5f} rms_avg={rms_avg:.5f}  {estado}"
     )
+
+    # === [DETECTOR-SAVE] Guarda el audio EXACTO que analizó el modelo (buffer pre-promoción + post) en 1 wav ===
+    # cascada.ring_buffer = TODO lo que se le pasó al speech, continuo. Solo si promovió (contador_chunk>0).
+    # Es la única copia íntegra: FreeSWITCH no lo tiene (el buffer se capturó a RAM antes de grabar).
+    if contador_chunk > 0 and len(cascada.ring_buffer) > 0:
+        try:
+            import wave as _wave, os as _os
+            _d = time.strftime("/var/recordings/speech/%Y/%m/%d"); _os.makedirs(_d, exist_ok=True)
+            _p = f"{_d}/{call_id}.wav"
+            with _wave.open(_p, "wb") as _wf:
+                _wf.setnchannels(1); _wf.setsampwidth(2); _wf.setframerate(cascada.sample_rate)
+                _wf.writeframes(bytes(cascada.ring_buffer))
+            _seg = len(cascada.ring_buffer) / 2 / cascada.sample_rate
+            print(f"  💾 audio-speech [{call_id}] guardado: {_p} ({_seg:.2f}s = lo que analizó el modelo)", flush=True)
+        except Exception as e:
+            print(f"  (no guardo audio-speech [{call_id}]: {type(e).__name__}: {e})", flush=True)
 
     # === SIN AUDIO: el speech NUNCA recibió audio (no promovió) -> no inventar decisión del speech ===
     if contador_chunk == 0:

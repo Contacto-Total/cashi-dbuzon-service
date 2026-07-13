@@ -4,6 +4,7 @@
   "T_conc": 0.60,
   "freq_ringback_hz": 450,
   "N_voz_ms": 800,
+  "N_tono_timbrado": 8,
   "N_timeout_s": 10,
   "_nota": "clasificador cambiado de flatness -> concentracion top-3 (T_conc): tono/timbrado concentrado en pocas freqs (top3>=0.60), voz repartida (<0.60). La flatness subdetectaba voz grave/telefonica. Validado sobre recordings reales 2026-07-08: top3 da 9/9 voces temprano (800-3000ms) vs flatness 6/9. N_voz_ms subido 600->800 (4 ventanas seguidas): mata transitorios cortos de timbrado/clic que colaban como VOZ y conectaban al agente con timbrado (casos da7c9e8a=936182725, f93ab3b9=910087910); 800 es el maximo sin perder al humano real 2c3a81fd (su voz eran 4 ventanas). T_flat queda por compat, ya no se usa."
 }
