@@ -1,0 +1,30 @@
+[Unit]
+Description=Cashi AMD Streaming (funnel v3 + pre-speech) - detector_RL_Final
+After=network.target
+# Si quieres que espere a FreeSWITCH, descomenta:
+# After=network.target freeswitch.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/cashi/cashi-dbuzon-service
+
+# Logs en vivo por journalctl
+Environment=PYTHONUNBUFFERED=1
+# URL del backend al que el detector POSTea la decisión (y /promoted deriva sola)
+Environment=BACKEND_AMD_URL=http://localhost:8080/api/amd/decision
+# OPENAI_API_KEY se lee del .env en WorkingDirectory (load_dotenv). Maneja esa key ahí.
+
+# Levanta el detector nuevo (NO app.main). uvicorn importa el objeto `app` de detector_RL_Final.py
+ExecStart=/home/ubuntu/cashi/cashi-dbuzon-service/venv/bin/uvicorn detector_RL_Final:app \
+    --host 0.0.0.0 \
+    --port 8765 \
+    --workers 1
+
+# Auto-reinicio: si crashea o para, systemd lo vuelve a levantar (con 5s de pausa
+# para no entrar en bucle apretado). Reinicia también en salida "clean".
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

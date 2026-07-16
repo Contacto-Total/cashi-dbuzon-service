@@ -1,48 +1,3 @@
-"""
-amd_lr.py — Detección de contestadora (AMD) en streaming con EMBUDO PROGRESIVO.
-
-Idea central (validada sobre 2687 audios reales de producción):
-  - El audio entra en chunks de 20 ms y se va acumulando.
-  - En cada checkpoint (600, 800, ... 2000 ms) se calculan 8 features sobre la
-    ventana acumulada y un modelo logístico da p_human.
-  - Regla SUAVIZADA: p_efectiva = (p_actual + p_anterior)/2, y para colgar se
-    exigen >=2 checkpoints (nunca se cuelga en el primero). Así un humano que
-    baja un instante no se pierde.
-  - Lo que sigue incierto a los 2000 ms -> se manda a STT/LLM (ChatGPT).
-
-QUÉ SEPARA REALMENTE A LAS CLASES (importante, no es lo intuitivo):
-  Etiqueta "humano" = una PERSONA contestó, hable o no. En la muestra real:
-  42% de los humanos son silencio casi total, 45% ruido/energía baja, y solo
-  11% tiene voz detectable. Las máquinas, en cambio, hablan en 97% de los casos.
-  O sea: el discriminante NO es "el humano habla", es "la grabación siempre
-  habla y la persona puede quedarse callada". Por eso f0n_rate (voz sostenida
-  con F0 estable) domina con coeficiente NEGATIVO en los 8 checkpoints.
-  Consecuencia: el caso de riesgo es el humano que contesta hablando de
-  corrido; está poco representado (~11%) y ahí se concentra la pérdida.
-
-8 features (de varias librerías):
-  f0n_rate, f0std_hi  -> F0 (autocorrelación; en prod usa tu detector aubio)
-  g620                -> Goertzel 620 Hz
-  mfcc1, mfcc3, mfcc6 -> librosa MFCC
-  rolloff             -> librosa spectral rolloff
-  sil_slope           -> silero-vad: voz(2da mitad) - voz(1ra mitad)
-
-CALIBRACIÓN (funnel_model.json v3): 2687 audios reales de producción etiquetados
-a mano uno por uno (371 humanos, 2316 buzones). Compuerta por defecto q0.01.
-Desempeño esperado (media de 10 splits 75/25 independientes, no un solo split):
-    q0.0   -> 1.96% ± 1.67 humanos perdidos, 41% de buzones cortados
-    q0.005 -> 2.28% ± 1.57                 , 60%
-    q0.01  -> 2.50% ± 1.82                 , 68%   <- por defecto (rodilla)
-    q0.02  -> 3.80% ± 1.96                 , 80%
-Para moverte en esa curva, copia gates_alternativas["qX"] sobre gates_buzon.
-La pérdida NO baja a cero: hay solapamiento real entre las clases.
-
-OJO con el %STT: los clips duran 0.6-2.0 s y muchos terminan antes de que el
-embudo decida, lo que INFLA el %STT medido aquí. En producción el stream sigue
-hasta 2000 ms y el %STT real será menor.
-
-silero_vad.onnx debe estar junto a este archivo (o ajusta la ruta en AMDConfig).
-"""
 from __future__ import annotations
 import os, math, json
 from enum import Enum
@@ -93,10 +48,8 @@ class Decision:
     checkpoint_ms: int
     reason: str = ""
 
-
 _SILERO_SESS = None
 def _get_silero_sess(path):
-    """Carga la sesión ONNX de silero UNA sola vez (compartida entre llamadas)."""
     global _SILERO_SESS
     if _SILERO_SESS is None and _HAS_ORT and os.path.exists(path):
         _ort.set_default_logger_severity(3)
@@ -111,7 +64,7 @@ class _SileroVAD:
     FRAME = 256
 
     def __init__(self, path: str):
-        self.sess = _get_silero_sess(path)   # cacheado: 1 sola carga, no por llamada
+        self.sess = _get_silero_sess(path)
         self.ok = self.sess is not None
         self.reset()
 
@@ -202,14 +155,11 @@ class _FunnelModel:
             z += c * (feat[k] - m["mu"][k]) / m["sd"][k]
         return 1.0 / (1.0 + math.exp(-z))
 
-
 _FUNNEL_CACHE = {}
 def _get_funnel_model(path):
-    """Carga/parsea el funnel_model.json UNA sola vez por ruta (cacheado)."""
     if path not in _FUNNEL_CACHE:
         _FUNNEL_CACHE[path] = _FunnelModel(path)
     return _FUNNEL_CACHE[path]
-
 
 class StreamingAMD:
     def __init__(self, cfg: Optional[AMDConfig] = None):
@@ -223,10 +173,10 @@ class StreamingAMD:
     def reset(self):
         self._buf = np.zeros(0, dtype=np.float32)
         self._next_cp = 0
-        self._prev_p = None      # p crudo del checkpoint anterior (para suavizado)
-        self._last_pe = 0.5      # p efectiva más reciente (para reporte)
+        self._prev_p = 1.0
         self._done = False
         if self._silero:
+            
             self._silero.reset()
         self._tick_done = 0
         self._g620: List[float] = []
@@ -240,7 +190,7 @@ class StreamingAMD:
 
     def feed_chunk(self, chunk: np.ndarray) -> Decision:
         if self._done:
-            return Decision(Outcome.UNDECIDED, self._last_pe, self.elapsed_ms)
+            return Decision(Outcome.UNDECIDED, self._prev_p, self.elapsed_ms)
         chunk = np.asarray(chunk, dtype=np.float32).ravel()
         self._buf = np.concatenate([self._buf, chunk])
         if self.using_silero:
@@ -253,17 +203,15 @@ class StreamingAMD:
             if d.outcome in (Outcome.BUZON, Outcome.HUMANO, Outcome.SEND_TO_STT):
                 self._done = True
                 return d
-        return Decision(Outcome.UNDECIDED, self._last_pe, self.elapsed_ms)
+        return Decision(Outcome.UNDECIDED, self._prev_p, self.elapsed_ms)
 
     def force_decision(self) -> Decision:
-        """El audio terminó (o el integrador exige respuesta) sin decisión del
-        embudo. NUNCA apostamos BUZÓN/HUMANO con ventana parcial: lo seguro es
-        derivar a STT con el audio disponible."""
         if self._done:
-            return Decision(Outcome.UNDECIDED, self._last_pe, self.elapsed_ms)
+            return Decision(Outcome.UNDECIDED, self._prev_p, self.elapsed_ms)
+        ci = min(self._next_cp, len(self.checkpoints) - 1)
+        d = self._decide_at(ci, force=True)
         self._done = True
-        return Decision(Outcome.SEND_TO_STT, self._last_pe, self.elapsed_ms,
-                        f"audio termino sin decision (pe={self._last_pe:.3f}); a STT")
+        return d
 
     def _update_ticks(self):
         total = len(self._buf) // CHUNK_SAMPLES
@@ -305,30 +253,25 @@ class StreamingAMD:
         return np.array([f0n_rate, g620, mfcc1, mfcc3, slope, rolloff, mfcc6, f0std_hi])
 
     def _decide_at(self, ci: int, force: bool = False) -> Decision:
-        """Regla SUAVIZADA (v2): p_efectiva = promedio de p actual y p del
-        checkpoint anterior. BUZÓN requiere al menos 2 checkpoints (nunca se
-        cuelga en el primero); un bajón momentáneo no mata a un humano."""
         feat = self._feature_vector(ci)
         p = self.model.p_human(ci, feat)
-        pe = p if self._prev_p is None else 0.5 * (p + self._prev_p)
-        self._last_pe = pe
         cp = self.checkpoints[ci]
         gB = self.model.gates_buzon[ci]; gH = self.model.gates_human[ci]
         out, reason = Outcome.UNDECIDED, ""
-        if pe >= gH:
-            out, reason = Outcome.HUMANO, f"pe={pe:.2f}>=H({gH})"
-        elif self._prev_p is not None and pe <= gB:
-            out, reason = Outcome.BUZON, f"pe={pe:.4f}<=B({gB}) con 2 checkpoints"
+        if p >= gH:
+            out, reason = Outcome.HUMANO, f"p={p:.2f}>=H({gH})"
+        elif p <= gB and (ci == 0 or self._prev_p <= self.model.persist):
+            out, reason = Outcome.BUZON, f"p={p:.2f}<=B({gB}) persistencia ok"
         if out is Outcome.UNDECIDED and (ci == len(self.checkpoints) - 1 or force):
-            if pe >= 0.5:
-                reason = f"STT: tiende a humano (pe={pe:.2f})"
-            elif pe <= gB * 3:
-                reason = f"STT: maquina borderline (pe={pe:.4f})"
+            if p >= 0.5:
+                reason = f"STT: tiende a humano (p={p:.2f})"
+            elif p <= gB:
+                reason = f"STT: maquina borderline (p={p:.2f}, persistencia lo freno)"
             else:
-                reason = f"STT: zona media (pe={pe:.2f})"
+                reason = f"STT: zona media (p={p:.2f})"
             out = Outcome.SEND_TO_STT
         self._prev_p = p
-        return Decision(out, pe, cp, reason)
+        return Decision(out, p, cp, reason)
 
 
 if __name__ == "__main__":
