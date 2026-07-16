@@ -308,21 +308,21 @@ async def amd_cascada_websocket(websocket: WebSocket, call_id: str):
         f"  >> RMS [{call_id}] chunks={rms_cnt} rms_max={rms_max:.5f} rms_avg={rms_avg:.5f}  {estado}"
     )
 
-    # === [DETECTOR-SAVE] Guarda el audio EXACTO que analizó el modelo (buffer pre-promoción + post) en 1 wav ===
-    # cascada.ring_buffer = TODO lo que se le pasó al speech, continuo. Solo si promovió (contador_chunk>0).
-    # Es la única copia íntegra: FreeSWITCH no lo tiene (el buffer se capturó a RAM antes de grabar).
-    if contador_chunk > 0 and len(cascada.ring_buffer) > 0:
-        try:
-            import wave as _wave, os as _os
-            _d = time.strftime("/home/ubuntu/speech_clips/%Y/%m/%d"); _os.makedirs(_d, exist_ok=True)  # FUERA de /var/recordings (ahí un cleanup borra)
-            _p = f"{_d}/{call_id}.wav"
-            with _wave.open(_p, "wb") as _wf:
-                _wf.setnchannels(1); _wf.setsampwidth(2); _wf.setframerate(cascada.sample_rate)
-                _wf.writeframes(bytes(cascada.ring_buffer))
-            _seg = len(cascada.ring_buffer) / 2 / cascada.sample_rate
-            print(f"  💾 audio-speech [{call_id}] guardado: {_p} ({_seg:.2f}s = lo que analizó el modelo)", flush=True)
-        except Exception as e:
-            print(f"  (no guardo audio-speech [{call_id}]: {type(e).__name__}: {e})", flush=True)
+    # === [DETECTOR-SAVE] DESACTIVADO === (no guardar los .wav del buffer en /home/ubuntu/speech_clips)
+    # Guardaba el audio EXACTO que analizó el modelo (para auditar/reentrenar). Se apaga para no
+    # llenar disco en PRD. Para reactivarlo (ej. juntar muestras), descomenta el bloque.
+    # if contador_chunk > 0 and len(cascada.ring_buffer) > 0:
+    #     try:
+    #         import wave as _wave, os as _os
+    #         _d = time.strftime("/home/ubuntu/speech_clips/%Y/%m/%d"); _os.makedirs(_d, exist_ok=True)
+    #         _p = f"{_d}/{call_id}.wav"
+    #         with _wave.open(_p, "wb") as _wf:
+    #             _wf.setnchannels(1); _wf.setsampwidth(2); _wf.setframerate(cascada.sample_rate)
+    #             _wf.writeframes(bytes(cascada.ring_buffer))
+    #         _seg = len(cascada.ring_buffer) / 2 / cascada.sample_rate
+    #         print(f"  💾 audio-speech [{call_id}] guardado: {_p} ({_seg:.2f}s = lo que analizó el modelo)", flush=True)
+    #     except Exception as e:
+    #         print(f"  (no guardo audio-speech [{call_id}]: {type(e).__name__}: {e})", flush=True)
 
     # === SIN AUDIO: el speech NUNCA recibió audio (no promovió) -> no inventar decisión del speech ===
     if contador_chunk == 0:
