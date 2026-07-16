@@ -1,6 +1,6 @@
 {
-  "version": 3,
-  "calibrado_con": "AUDIOS_SPEECH_CONGLOMERADO \u2014 2687 audios reales de produccion, etiquetados a mano uno por uno (371 humanos, 2316 buzones)",
+  "version": 4,
+  "calibrado_con": "AUDIOS_SPEECH_CONGLOMERADO — 2687 ring_buffer reales (lo que el modelo analizo), etiquetados a mano uno por uno: 371 human, 2316 nonhuman. Etiquetas = ground truth, no se modificaron.",
   "checkpoints_ms": [
     600,
     800,
@@ -305,37 +305,27 @@
   ],
   "decision_rule": "smooth_avg2: p_efectiva=(p_actual+p_anterior)/2; BUZON exige >=2 checkpoints (nunca cuelga en el primero)",
   "gates_buzon": [
-    0.002048,
-    0.002375,
-    0.008563,
-    0.009672,
-    0.038158,
-    0.009853,
-    0.010287,
-    0.006365
+    0.000249,
+    0.000159,
+    0.001518,
+    0.001818,
+    0.009852,
+    0.00561,
+    0.009609,
+    0.005862
   ],
   "gates_human": [
-    0.8767,
-    0.9138,
-    0.9776,
-    0.995,
-    0.995,
-    0.9841,
-    0.814,
-    0.6
+    0.6612,
+    0.5218,
+    0.3542,
+    0.1846,
+    0.4373,
+    0.1461,
+    0.1432,
+    0.2141
   ],
   "gates_alternativas": {
-    "q0.0": [
-      0.000249,
-      0.000159,
-      0.001518,
-      0.001818,
-      0.009852,
-      0.00561,
-      0.009609,
-      0.005862
-    ],
-    "q0.002": [
+    "qB0.002": [
       0.000719,
       0.001172,
       0.00228,
@@ -345,7 +335,7 @@
       0.009744,
       0.005963
     ],
-    "q0.005": [
+    "qB0.005": [
       0.001421,
       0.001575,
       0.005671,
@@ -355,7 +345,17 @@
       0.009948,
       0.006114
     ],
-    "q0.02": [
+    "qB0.01": [
+      0.002048,
+      0.002375,
+      0.008563,
+      0.009672,
+      0.038158,
+      0.009853,
+      0.010287,
+      0.006365
+    ],
+    "qB0.02": [
       0.006607,
       0.014059,
       0.023393,
@@ -364,25 +364,70 @@
       0.018932,
       0.010965,
       0.006868
-    ],
-    "q0.03": [
-      0.016817,
-      0.027554,
-      0.03734,
-      0.038131,
-      0.041239,
-      0.027204,
-      0.011735,
-      0.007372
     ]
   },
-  "compuerta_elegida": "q0.01 \u2014 rodilla de la curva: ~2.5% humanos perdidos, ~68% de buzones cortados en el AMD",
-  "desempeno_esperado_10_splits": {
-    "q0.0": "1.96%\u00b11.67 perdidos / 41% cortadas",
-    "q0.005": "2.28%\u00b11.57 / 60%",
-    "q0.01": "2.50%\u00b11.82 / 68%",
-    "q0.02": "3.80%\u00b11.96 / 80%"
+  "gates_human_alternativas": {
+    "qH0.96": [
+      0.4975,
+      0.3719,
+      0.2226,
+      0.1186,
+      0.1036,
+      0.0965,
+      0.081,
+      0.14
+    ],
+    "qH0.97": [
+      0.5915,
+      0.434,
+      0.2549,
+      0.1384,
+      0.1429,
+      0.1167,
+      0.1042,
+      0.1605
+    ],
+    "qH0.985": [
+      0.6877,
+      0.5716,
+      0.573,
+      0.2423,
+      0.8948,
+      0.2755,
+      0.1538,
+      0.2548
+    ],
+    "qH0.99": [
+      0.7639,
+      0.782,
+      0.9191,
+      0.4633,
+      0.9427,
+      0.8228,
+      0.1753,
+      0.276
+    ],
+    "qH0.997": [
+      0.8567,
+      0.8938,
+      0.9576,
+      0.9767,
+      0.9782,
+      0.9641,
+      0.794,
+      0.3148
+    ]
   },
-  "nota": "Etiqueta humano = una PERSONA contesto, hable o no. En la muestra 42% de los humanos son silencio casi total y 45% ruido/energia baja: solo 11% tiene voz detectable. Las maquinas hablan en 97% de los casos. La separacion real es voz-humana/ruido/silencio vs mensaje grabado sostenido.",
-  "advertencia": "Los clips duran 0.6-2.0s y muchos terminan antes de que el embudo decida, lo que INFLA el %STT medido. En produccion el stream continua hasta 2000ms y el %STT real sera menor."
+  "compuertas_elegidas": "gates_buzon=qB0.0 (piso de la distribucion humana OOF); gates_human=qH0.98 (percentil 98 de las maquinas)",
+  "por_que_gates_human_bajo": "EVIDENCIA DEL CODIGO: en detector_RL_Final.py, classify_with_whisper() hace \"if not text: return buzon\", y cascada_classify() lo devuelve de inmediato (GPT ni se ejecuta). Segun el clasificador del propio pre-speech, 180/371 humanos (48.5%) no tienen NI UNA ventana VOZ: si el embudo los manda a SEND_TO_STT, la transcripcion sale vacia y terminan en BUZON. Con gates_human=q0.997 eso costaba 29.35% de los humanos. Con q0.98 baja a 0.22%. La compuerta HUMANO no es solo velocidad: es lo que RESCATA al humano callado antes de que el STT lo condene.",
+  "desempeno_10_splits_75_25": {
+    "PERDIDA EFECTIVA = buzon directo + STT-mudo (transcripcion vacia -> buzon)": "",
+    "qB0.0  + qH0.98 (elegido)": "2.61% ±1.30 perdida efectiva (2.39 buzon + 0.22 STT-mudo) | 44.2% maquinas cortadas | 3.04% fuga",
+    "qB0.005+ qH0.98": "3.37% ±0.90 | 62.6% cortadas | 3.04% fuga",
+    "qB0.01 + qH0.98": "3.70% ±1.11 | 70.3% cortadas | 3.04% fuga",
+    "qB0.01 + qH0.997 (v3, NO USAR)": "33.04% — el STT-mudo se comia 29.35% de los humanos"
+  },
+  "reparto_humanos_config_elegida": "90.1% -> HUMANO directo | 7.3% -> STT con voz (la cascada de keywords/GPT los puede resolver) | 2.39% -> BUZON | 0.22% -> STT mudo",
+  "nota_dataset": "Los clips son el ring_buffer, cortado donde el modelo VIEJO decidio: sus duraciones caen en la grilla de checkpoints. Por eso los checkpoints tardios (1400-2000ms) solo tienen los casos que el modelo viejo no resolvio antes (a 2000ms quedan 21 humanos). El dataset esta censurado por el modelo anterior; los coeficientes tardios son los mas debiles.",
+  "nota_gate": "Verificado sobre los 2687: solo 4.1% de los humanos tienen sus primeras 4 ventanas en VOZ y 48.5% no tienen ninguna. NO pasaron por el pre-speech gate: entraron por la Variante B (event=answered -> fase=SPEECH, descarta buffer_pre). Por eso calibrar sobre estos clips es correcto: son la entrada real del modelo en ese camino."
 }
