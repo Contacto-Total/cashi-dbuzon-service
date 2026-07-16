@@ -27,40 +27,47 @@ QUÉ SEPARA REALMENTE A LAS CLASES (importante, no es lo intuitivo):
   rolloff             -> librosa spectral rolloff
   sil_slope           -> silero-vad: voz(2da mitad) - voz(1ra mitad)
 
-CALIBRACIÓN (funnel_model.json v4): 2687 ring_buffer reales de producción
-etiquetados a mano uno por uno (371 human, 2316 nonhuman). Etiquetas = ground
-truth, sin modificar. Arquitectura, features y regla: SIN CAMBIOS. Solo se
-recalibraron coeficientes y compuertas.
+CALIBRACIÓN (funnel_model.json v5): 2687 audios reales de producción etiquetados
+a mano uno por uno (371 human, 2316 nonhuman). Etiquetas = ground truth.
+Arquitectura, features, regla de decisión y C=1.0: SIN CAMBIOS.
 
-POR QUÉ gates_human ES BAJO (evidencia de detector_RL_Final.py):
-  classify_with_whisper() hace `if not text: return {"decision": "buzon"}`, y
-  cascada_classify() devuelve eso de inmediato — GPT ni se ejecuta. Según el
-  clasificador del propio pre-speech, 180/371 humanos (48.5%) no tienen NI UNA
-  ventana VOZ: si el embudo los manda a SEND_TO_STT, la transcripción sale vacía
-  y terminan en BUZÓN. O sea, SEND_TO_STT NO es refugio seguro para el humano
-  callado: es pérdida diferida. Por eso la compuerta de HUMANO no es solo
-  velocidad — es lo que lo RESCATA antes de que el STT lo condene.
+v5 = v3 + UN SOLO cambio: el piso del clip de gates_human sube de 0.6 a 0.9.
+  gates_human = clip(q0.997(máquinas OOF) + 0.02, 0.9, 0.995)
+  Solo se mueven 3 de 8 valores: 600ms 0.8767->0.9, 1800ms 0.814->0.9,
+  2000ms 0.6->0.9. gates_buzon, coeficientes, mu y sd quedan idénticos al v3.
+  Motivo (medido): 10 de las 21 fugas (48%) ocurrían a 1800ms, donde el piso 0.6
+  dejaba la compuerta en 0.814 y el modelo entrena con solo 27 humanos (16 a
+  2000ms). Son los checkpoints de modelo más débil y el piso los volvía laxos.
 
-PÉRDIDA EFECTIVA = buzón directo + STT-mudo. Media de 10 splits 75/25:
-    qB0.0  + qH0.98  -> 2.61% ± 1.30  (2.39 buzón + 0.22 STT-mudo) | 44% cortadas | 3.04% fuga   <- ACTIVO
-    qB0.005+ qH0.98  -> 3.37% ± 0.90                               | 63% cortadas | 3.04% fuga
-    qB0.01 + qH0.98  -> 3.70% ± 1.11                               | 70% cortadas | 3.04% fuga
-    qB0.01 + qH0.997 -> 33.04%  <- era el v3: el STT-mudo se comía 29.35% de los humanos
-Reparto de humanos con la config activa: 90.1% HUMANO directo, 7.3% STT con voz
-(la cascada de keywords/GPT los resuelve), 2.39% BUZÓN, 0.22% STT mudo.
-Para moverte: copia gates_alternativas["qBx"] sobre gates_buzon (más corte, más
-pérdida). NO subas gates_human por encima de 0.985 — ahí empieza el acantilado.
-La pérdida NO baja a cero: hay solapamiento real entre las clases.
+MEDIDO sobre 10 splits 75/25 independientes (mismas semillas para ambos):
+                     FN humano->BUZÓN   FP máq->HUMANO   máq cortadas   STT
+    v3 (base)          3.70% ± 1.11         0.36%            70.4%      35.7%
+    v5 (activo)        3.70% ± 1.11         0.21%            70.4%      36.2%
+  FN y corte idénticos por construcción (el piso de gates_human no toca la ruta
+  de BUZÓN). La ganancia es toda en falsos positivos: -42%. Costo: 2.9% de los
+  humanos pasan de HUMANO-directo a STT, que es camino seguro.
+  Otro punto de la curva: copia gates_alternativas["qBx"] sobre gates_buzon
+  (qB0.005 -> FN 3.37% / 62.6% cortadas). La pérdida NO baja a cero: hay
+  solapamiento real entre las clases.
 
-DE DÓNDE SALEN LOS CLIPS (verificado, no supuesto): son el cascada.ring_buffer,
-o sea exactamente lo que se le pasó a este modelo, cortado donde el modelo VIEJO
-decidió — sus duraciones caen en la grilla de checkpoints. Solo 4.1% de los
-humanos tienen sus primeras 4 ventanas en VOZ y 48.5% no tienen ninguna: NO
-pasaron por el pre-speech gate, entraron por la Variante B (event=answered ->
-fase=SPEECH, descarta buffer_pre). Por eso calibrar sobre ellos es correcto: son
-la entrada real del modelo en ese camino. Consecuencia: los checkpoints tardíos
-solo contienen lo que el modelo viejo no resolvió antes (a 2000ms quedan 21
-humanos), así que esos coeficientes son los más débiles del conjunto.
+PROBADO Y DESCARTADO POR NO MEJORAR (no reintentar sin data nueva):
+  - gates_human = q0.98 (era el v4): bajaba el corte 70%->44% y multiplicaba la
+    fuga x10. Su justificación —que 180 humanos llegaban mudos al STT y
+    terminaban en buzón por `if not text: return buzon`— es FALSA:
+    transcribe_whi_gtp4_mini normaliza a pico 0.95 (ganancia mediana x99) y el
+    84.4% de esos clips SÍ tiene contenido tras normalizar; ninguno es silencio
+    digital. Medir el clip crudo con el T_sil del gate fue el error.
+  - Regularización C: 0.1 y 0.3 empeoran FN +0.76 pts; 3.0 gana 0.11 (ruido) y
+    pierde 1.8 pts de corte. Se mantiene C=1.0.
+  - Calendarios de gates_buzon por checkpoint: los 4 probados empeoran FN (+0.65
+    a +1.52). Endurecer las compuertas tempranas NO salva humanos: sobreviven a
+    800/1000ms y los mata la compuerta de 1200+. Se mantiene qB0.01 uniforme.
+  - Compuerta atípica de 1400ms (0.038): causa 1 pérdida de 34 en 10 splits.
+    No es el problema; no se toca.
+
+DÓNDE SE PIERDEN (diagnóstico, 10 splits): 20 de 34 pérdidas ocurren a 800 y
+1000ms, que es donde también se corta el 78% de las máquinas. Ese es el cuello
+de botella real; moverlo requiere data nueva, no reajustar umbrales.
 
 silero_vad.onnx debe estar junto a este archivo (o ajusta la ruta en AMDConfig).
 """
@@ -115,18 +122,25 @@ class Decision:
     reason: str = ""
 
 
+_SILERO_SESS = None
+def _get_silero_sess(path):
+    """Carga la sesión ONNX de silero UNA sola vez (compartida entre llamadas)."""
+    global _SILERO_SESS
+    if _SILERO_SESS is None and _HAS_ORT and os.path.exists(path):
+        _ort.set_default_logger_severity(3)
+        so = _ort.SessionOptions()
+        so.inter_op_num_threads = 1
+        so.intra_op_num_threads = 1
+        _SILERO_SESS = _ort.InferenceSession(path, so)
+    return _SILERO_SESS
+
+
 class _SileroVAD:
     FRAME = 256
 
     def __init__(self, path: str):
-        self.ok = False
-        if _HAS_ORT and os.path.exists(path):
-            try:
-                _ort.set_default_logger_severity(3)
-                self.sess = _ort.InferenceSession(path)
-                self.ok = True
-            except Exception:
-                self.ok = False
+        self.sess = _get_silero_sess(path)   # cacheado: 1 sola carga, no por llamada
+        self.ok = self.sess is not None
         self.reset()
 
     def reset(self):
@@ -217,10 +231,18 @@ class _FunnelModel:
         return 1.0 / (1.0 + math.exp(-z))
 
 
+_FUNNEL_CACHE = {}
+def _get_funnel_model(path):
+    """Carga/parsea el funnel_model.json UNA sola vez por ruta (cacheado)."""
+    if path not in _FUNNEL_CACHE:
+        _FUNNEL_CACHE[path] = _FunnelModel(path)
+    return _FUNNEL_CACHE[path]
+
+
 class StreamingAMD:
     def __init__(self, cfg: Optional[AMDConfig] = None):
         self.cfg = cfg or AMDConfig()
-        self.model = _FunnelModel(self.cfg.model_path)
+        self.model = _get_funnel_model(self.cfg.model_path)
         self.checkpoints = self.model.checkpoints
         self._silero = _SileroVAD(self.cfg.silero_path) if self.cfg.use_silero else None
         self.using_silero = bool(self._silero and self._silero.ok)

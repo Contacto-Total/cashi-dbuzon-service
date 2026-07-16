@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 5,
   "calibrado_con": "AUDIOS_SPEECH_CONGLOMERADO — 2687 ring_buffer reales (lo que el modelo analizo), etiquetados a mano uno por uno: 371 human, 2316 nonhuman. Etiquetas = ground truth, no se modificaron.",
   "checkpoints_ms": [
     600,
@@ -305,24 +305,24 @@
   ],
   "decision_rule": "smooth_avg2: p_efectiva=(p_actual+p_anterior)/2; BUZON exige >=2 checkpoints (nunca cuelga en el primero)",
   "gates_buzon": [
-    0.000249,
-    0.000159,
-    0.001518,
-    0.001818,
-    0.009852,
-    0.00561,
-    0.009609,
-    0.005862
+    0.002048,
+    0.002375,
+    0.008563,
+    0.009672,
+    0.038158,
+    0.009853,
+    0.010287,
+    0.006365
   ],
   "gates_human": [
-    0.6612,
-    0.5218,
-    0.3542,
-    0.1846,
-    0.4373,
-    0.1461,
-    0.1432,
-    0.2141
+    0.9,
+    0.9138,
+    0.9776,
+    0.995,
+    0.995,
+    0.9841,
+    0.9,
+    0.9
   ],
   "gates_alternativas": {
     "qB0.002": [
@@ -366,68 +366,20 @@
       0.006868
     ]
   },
-  "gates_human_alternativas": {
-    "qH0.96": [
-      0.4975,
-      0.3719,
-      0.2226,
-      0.1186,
-      0.1036,
-      0.0965,
-      0.081,
-      0.14
-    ],
-    "qH0.97": [
-      0.5915,
-      0.434,
-      0.2549,
-      0.1384,
-      0.1429,
-      0.1167,
-      0.1042,
-      0.1605
-    ],
-    "qH0.985": [
-      0.6877,
-      0.5716,
-      0.573,
-      0.2423,
-      0.8948,
-      0.2755,
-      0.1538,
-      0.2548
-    ],
-    "qH0.99": [
-      0.7639,
-      0.782,
-      0.9191,
-      0.4633,
-      0.9427,
-      0.8228,
-      0.1753,
-      0.276
-    ],
-    "qH0.997": [
-      0.8567,
-      0.8938,
-      0.9576,
-      0.9767,
-      0.9782,
-      0.9641,
-      0.794,
-      0.3148
-    ]
-  },
-  "compuertas_elegidas": "gates_buzon=qB0.0 (piso de la distribucion humana OOF); gates_human=qH0.98 (percentil 98 de las maquinas)",
-  "por_que_gates_human_bajo": "EVIDENCIA DEL CODIGO: en detector_RL_Final.py, classify_with_whisper() hace \"if not text: return buzon\", y cascada_classify() lo devuelve de inmediato (GPT ni se ejecuta). Segun el clasificador del propio pre-speech, 180/371 humanos (48.5%) no tienen NI UNA ventana VOZ: si el embudo los manda a SEND_TO_STT, la transcripcion sale vacia y terminan en BUZON. Con gates_human=q0.997 eso costaba 29.35% de los humanos. Con q0.98 baja a 0.22%. La compuerta HUMANO no es solo velocidad: es lo que RESCATA al humano callado antes de que el STT lo condene.",
+  "compuertas_elegidas": "BASE = v3 (gates_buzon=qB0.01, C=1.0, features y regla intactas). UNICO CAMBIO v3->v5: el piso del clip de gates_human sube de 0.6 a 0.9. gates_human = clip(q0.997(maquinas OOF)+0.02, 0.9, 0.995).",
   "desempeno_10_splits_75_25": {
-    "PERDIDA EFECTIVA = buzon directo + STT-mudo (transcripcion vacia -> buzon)": "",
-    "qB0.0  + qH0.98 (elegido)": "2.61% ±1.30 perdida efectiva (2.39 buzon + 0.22 STT-mudo) | 44.2% maquinas cortadas | 3.04% fuga",
-    "qB0.005+ qH0.98": "3.37% ±0.90 | 62.6% cortadas | 3.04% fuga",
-    "qB0.01 + qH0.98": "3.70% ±1.11 | 70.3% cortadas | 3.04% fuga",
-    "qB0.01 + qH0.997 (v3, NO USAR)": "33.04% — el STT-mudo se comia 29.35% de los humanos"
+    "v5 (ACTIVO)": "FN 3.70% ±1.11 humanos->BUZON | FP 0.21% maquinas->HUMANO | 70.4% maquinas cortadas | 36.2% STT",
+    "v3 (base)": "FN 3.70% ±1.11 | FP 0.36% | 70.4% cortadas | 35.7% STT",
+    "nota": "FN y corte identicos por construccion: el piso de gates_human no toca la ruta de BUZON. La ganancia es toda en FP.",
+    "curva de gates_buzon si quieres otro punto": "qB0.005 -> FN 3.37% / 62.6% cortadas | qB0.02 -> mas corte, mas FN. Ver gates_alternativas."
   },
-  "reparto_humanos_config_elegida": "90.1% -> HUMANO directo | 7.3% -> STT con voz (la cascada de keywords/GPT los puede resolver) | 2.39% -> BUZON | 0.22% -> STT mudo",
   "nota_dataset": "Los clips son el ring_buffer, cortado donde el modelo VIEJO decidio: sus duraciones caen en la grilla de checkpoints. Por eso los checkpoints tardios (1400-2000ms) solo tienen los casos que el modelo viejo no resolvio antes (a 2000ms quedan 21 humanos). El dataset esta censurado por el modelo anterior; los coeficientes tardios son los mas debiles.",
-  "nota_gate": "Verificado sobre los 2687: solo 4.1% de los humanos tienen sus primeras 4 ventanas en VOZ y 48.5% no tienen ninguna. NO pasaron por el pre-speech gate: entraron por la Variante B (event=answered -> fase=SPEECH, descarta buffer_pre). Por eso calibrar sobre estos clips es correcto: son la entrada real del modelo en ese camino."
+  "nota_gate": "Verificado sobre los 2687: solo 4.1% de los humanos tienen sus primeras 4 ventanas en VOZ y 48.5% no tienen ninguna. NO pasaron por el pre-speech gate: entraron por la Variante B (event=answered -> fase=SPEECH, descarta buffer_pre). Por eso calibrar sobre estos clips es correcto: son la entrada real del modelo en ese camino.",
+  "cambio_v3_a_v5": "Diagnostico sobre 10 splits: 10 de las 21 fugas (48%) ocurrian a 1800ms, donde el piso 0.6 dejaba la compuerta en 0.814 y el modelo solo entrena con 27 humanos (a 2000ms, 16). Subir el piso a 0.9 elimina esas fugas sin tocar nada mas. MEDIDO (10 splits 75/25, mismas semillas): FN 3.70%±1.11 -> 3.70%±1.11 (identico), maquinas cortadas 70.4% -> 70.4% (identico), FP fuga 0.36% -> 0.21% (-42%). Costo unico: 2.9% de humanos pasan de HUMANO-directo a STT, que es camino seguro. Solo cambian 3 de los 8 valores: 600ms 0.8767->0.9, 1800ms 0.814->0.9, 2000ms 0.6->0.9. El resto queda EXACTAMENTE como el v3.",
+  "descartado_por_evidencia": {
+    "v4 (gates_human=q0.98)": "DESCARTADO. Su justificacion era que 180 humanos llegarian mudos al STT (transcripcion vacia -> buzon). FALSO: transcribe_whi_gtp4_mini normaliza a pico 0.95 (ganancia mediana x99) y 84.4% de esos clips SI tienen contenido tras normalizar; ninguno es silencio digital. El v4 ademas bajaba el corte de 70%->44% y multiplicaba la fuga x10.",
+    "regularizacion C": "Probado C=0.1/0.3/1.0/3.0. C=0.1 y C=0.3 empeoran FN en +0.76 pts. C=3.0 gana 0.11 pts de FN (ruido frente a ±1.11) y pierde 1.8 pts de corte. Se mantiene C=1.0.",
+    "calendario de gates_buzon por checkpoint": "Probados 4 calendarios. TODOS empeoran FN (+0.65 a +1.52 pts). Endurecer las compuertas tempranas no salva humanos: sobreviven a 800/1000ms y los mata la compuerta de 1200+. Se mantiene qB0.01 uniforme.",
+    "compuerta atipica de 1400ms (0.038)": "Sospeche que causaba perdidas. Los datos dicen que causa 1 de 34 en 10 splits. No se toca."
+  }
 }
